@@ -273,6 +273,35 @@ tr:hover td { background: #f8fafc; }
       </div>
       <div class="output-box" id="rootOutput" style="margin-top:16px;">等待操作...</div>
     </div>
+
+    <div class="card">
+      <div class="card-title">🏢 签发中间 CA</div>
+      <div class="card-desc">由根 CA 或上级中间 CA 签发下级中间 CA，构建多级证书信任链。pathlen 控制该 CA 可再签发几级子 CA。</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>上级 CA</label>
+          <select id="icaParentCA"><option value="">-- 加载中 --</option></select>
+        </div>
+        <div class="form-group"><label>CN (通用名称)</label><input id="icaCN" value="Intermediate CA Level 1"></div>
+        <div class="form-group"><label>OU (组织单位)</label><input id="icaOU" value="PKI中间CA"></div>
+        <div class="form-group"><label>O (组织)</label><input id="icaO" value="实训CA中心"></div>
+        <div class="form-group"><label>Email</label><input id="icaEmail" value="ica@example.edu"></div>
+        <div class="form-group"><label>省份 (ST)</label><input id="icaST" value="山东"></div>
+        <div class="form-group"><label>城市 (L)</label><input id="icaL" value="济南"></div>
+        <div class="form-group"><label>国家 (C)</label><input id="icaC" value="CN"></div>
+        <div class="form-group"><label>算法</label>
+          <select id="icaAlg"><option value="ECDSA-P256">ECDSA P-256</option><option value="SM2">SM2</option></select>
+        </div>
+        <div class="form-group"><label>有效期 (天)</label><input id="icaDays" type="number" value="1825" min="1" max="36500"></div>
+        <div class="form-group"><label>pathlen</label>
+          <select id="icaPathlen"><option value="1">1 — 可再签发 1 级子 CA</option><option value="0">0 — 不可再签发子 CA</option><option value="2">2 — 可再签发 2 级子 CA</option></select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="issueIntermediateCA()">🏢 签发中间 CA</button>
+        <button class="btn btn-outline" onclick="loadCAList()">🔄 刷新 CA 列表</button>
+      </div>
+    </div>
   </section>
 
   <!-- ══════ 面板：签发用户证书 ══════ -->
@@ -291,6 +320,9 @@ tr:hover td { background: #f8fafc; }
         <div class="form-group"><label>省份 (ST)</label><input id="uST" placeholder="山东"></div>
         <div class="form-group"><label>城市 (L)</label><input id="uL" placeholder="济南"></div>
         <div class="form-group"><label>国家 (C)</label><input id="uC" placeholder="CN"></div>
+        <div class="form-group"><label>签发 CA</label>
+          <select id="uCA"><option value="">根 CA（默认）</option></select>
+        </div>
         <div class="form-group"><label>算法</label>
           <select id="uAlg"><option value="ECDSA-P256">ECDSA P-256</option><option value="SM2">SM2 (国密)</option></select>
         </div>
@@ -464,6 +496,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     $(`panel-${btn.dataset.panel}`).classList.add('active');
     if (btn.dataset.panel === 'revoke') loadActiveCertsForRevoke();
     if (btn.dataset.panel === 'user') loadActiveCerts();
+    if (btn.dataset.panel === 'root') loadCAList();
   });
 });
 
@@ -548,11 +581,13 @@ async function issueUser() {
   const cn = $('uCN').value.trim();
   if (!cn) { toast('CN (通用名称) 为必填项', 'error'); return; }
   output('userOutput', '正在签发用户证书，请稍候...', 'info');
+  const caSerial = $('uCA').value;
   try {
     const r = await api('/api/certificates/issue', {method:'POST', body:JSON.stringify({
       cn, ou: $('uOU').value, o: $('uO').value, email: $('uEmail').value,
       st: $('uST').value, l: $('uL').value, c: $('uC').value,
-      days: parseInt($('uDays').value), algorithm: $('uAlg').value
+      days: parseInt($('uDays').value), algorithm: $('uAlg').value,
+      ca_serial: caSerial
     })});
     if (r.status === 'ok') {
       let txt = '✅ 用户双证书签发成功!\n\n组ID: ' + r.data.group_id + '\n\n';
@@ -839,7 +874,29 @@ async function viewCert(serial) {
     const r = await api(`/api/certificates/${serial}`);
     if (r.certificate) {
       const c = r.certificate;
-      $('certDetail').innerHTML = `
+      // 加载证书链
+      let chainHtml = '<div style="margin-top:16px; font-size:12px; color:var(--text-secondary);">信任链加载中...</div>';
+      api(`/api/certificates/${serial}/chain`).then(cr => {
+        if (cr.status === 'ok' && cr.chain) {
+          chainHtml = '<div style="margin-top:16px;"><b>🔗 证书信任链</b><div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">';
+          const icons = ['🔒', '🏢', '🏛️'];
+          const labels = ['端实体', '中间 CA', '根 CA'];
+          cr.chain.forEach((link, i) => {
+            const icon = link.level === 'end-entity' ? '🔒' : (link.level === 'intermediate' ? '🏢' : '🏛️');
+            const label = link.level === 'end-entity' ? '端实体' : (link.level === 'intermediate' ? '中间 CA' : '根 CA');
+            chainHtml += `<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;${i===0?'background:#eff6ff;':''}">
+              <span style="font-weight:600;">${icon} ${label}</span>
+              <div style="font-size:11px;color:var(--text-secondary);" class="mono">${escapeHtml(link.serial)}</div>
+              <div style="font-size:12px;">${escapeHtml(link.subject)}</div>
+              ${i > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">↑ 由上级签发</div>` : ''}
+            </div>`;
+          });
+          chainHtml += '</div></div>';
+        }
+        $('certDetail').innerHTML = detailBase + chainHtml;
+      });
+
+      const detailBase = `
         <table>
           <tr><td><b>序列号</b></td><td class="mono">${c.serial}</td></tr>
           <tr><td><b>组ID</b></td><td class="mono">${c.group_id}</td></tr>
@@ -863,6 +920,7 @@ async function viewCert(serial) {
           ${c.status==='revoked' && c.revoke_reason==='certificateHold' ? `
             <button class="btn btn-primary btn-sm" onclick="closeModal();restoreCert('${c.serial}')">恢复证书</button>
           ` : ''}
+          <button class="btn btn-outline btn-sm" onclick="downloadChain('${c.serial}')">下载证书链</button>
         </div>
       `;
       $('certModal').classList.add('show');
@@ -886,6 +944,73 @@ function downloadPem(serial, type) {
   });
 }
 
+// ── 中间 CA 操作 ──
+async function issueIntermediateCA() {
+  const parent = $('icaParentCA').value;
+  if (!parent) { toast('请选择上级 CA', 'error'); return; }
+  output('rootOutput', '正在签发中间 CA，请稍候...', 'info');
+  try {
+    const r = await api('/api/ca/issue-intermediate', {method:'POST', body:JSON.stringify({
+      parent_ca_serial: parent,
+      cn: $('icaCN').value, ou: $('icaOU').value, o: $('icaO').value,
+      email: $('icaEmail').value, st: $('icaST').value, l: $('icaL').value, c: $('icaC').value,
+      days: parseInt($('icaDays').value), algorithm: $('icaAlg').value,
+      pathlen: parseInt($('icaPathlen').value)
+    })});
+    if (r.status === 'ok') {
+      output('rootOutput', `✅ 中间 CA 签发成功!\n\n序列号: ${r.data.serial}\n主题: ${r.data.subject}\n上级: ${r.data.parent_subject}\npathlen: ${r.data.pathlen}`, 'ok');
+      toast('中间 CA 签发成功!', 'success');
+      loadCAList();
+    } else {
+      output('rootOutput', '❌ 签发失败: ' + (r.detail || r.message), 'err');
+      toast('签发失败', 'error');
+    }
+  } catch(e) { output('rootOutput', '请求异常: ' + e.message, 'err'); }
+  loadStatus();
+}
+
+async function loadCAList() {
+  try {
+    const r = await api('/api/ca/list');
+    // 更新中间 CA 面板的上级 CA 选择器
+    const sel = $('icaParentCA');
+    if (r.cas && r.cas.length > 0) {
+      sel.innerHTML = r.cas.map(ca => `<option value="${ca.serial}">[${ca.level==='root'?'根CA':'中间CA'}] ${escapeHtml(ca.subject)} (${ca.serial?.substring(0,12)}...)</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="">-- 无可用 CA --</option>';
+    }
+
+    // 更新用户证书签发面板的 CA 选择器
+    const uSel = $('uCA');
+    if (uSel) {
+      uSel.innerHTML = '<option value="">根 CA（默认）</option>';
+      if (r.cas && r.cas.length > 0) {
+        r.cas.filter(ca => ca.level === 'intermediate').forEach(ca => {
+          uSel.innerHTML += `<option value="${ca.serial}">[中间CA] ${escapeHtml(ca.subject)}</option>`;
+        });
+      }
+    }
+
+    toast(`CA 列表已刷新 (${r.count} 个)`, 'info');
+  } catch(e) { toast('加载 CA 列表失败', 'error'); }
+}
+
+function loadCAListForUser() {
+  loadCAList();
+}
+
+async function downloadChain(serial) {
+  try {
+    const r = await api(`/api/certificates/${serial}/chain/download`);
+    if (r.status === 'ok') {
+      const blob = new Blob([r.content], {type:'application/x-pem-file'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = r.filename; a.click(); URL.revokeObjectURL(a.href);
+      toast(`证书链已下载 (${r.chain_length} 级)`, 'success');
+    }
+  } catch(e) { toast('下载失败', 'error'); }
+}
+
 // ── 拖拽上传支持 ──
 const uploadArea = $('csvUploadArea');
 if (uploadArea) {
@@ -903,7 +1028,7 @@ if (uploadArea) {
 }
 
 // ── 初始化 ──
-loadStatus(); loadRootInfo();
+loadStatus(); loadRootInfo(); loadCAList();
 setInterval(loadStatus, 30000);
 </script>
 </body>

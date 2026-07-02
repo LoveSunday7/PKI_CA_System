@@ -45,7 +45,7 @@ def init_db() -> None:
             group_id TEXT,
             subject_dn TEXT NOT NULL,
             issuer_dn TEXT NOT NULL,
-            cert_type TEXT NOT NULL CHECK(cert_type IN ('signing', 'encryption')),
+            cert_type TEXT NOT NULL CHECK(cert_type IN ('signing', 'encryption', 'intermediate_ca')),
             algorithm TEXT NOT NULL DEFAULT 'ECDSA-P256',
             cert_pem TEXT NOT NULL,
             key_pem TEXT NOT NULL,
@@ -56,6 +56,8 @@ def init_db() -> None:
             status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'revoked')),
             revoke_date TEXT,
             revoke_reason TEXT,
+            is_ca INTEGER NOT NULL DEFAULT 0,
+            parent_ca_serial TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
@@ -74,8 +76,32 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_certs_type ON certificates(cert_type);
     """)
 
+    # 数据库迁移：为已有数据库添加新列
+    _migrate_db(cursor)
+
     conn.commit()
     conn.close()
+
+
+def _migrate_db(cursor) -> None:
+    """为已有数据库添加缺失的列和修改约束（兼容旧版本）。"""
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(certificates)").fetchall()}
+    if "is_ca" not in cols:
+        cursor.execute("ALTER TABLE certificates ADD COLUMN is_ca INTEGER NOT NULL DEFAULT 0")
+    if "parent_ca_serial" not in cols:
+        cursor.execute("ALTER TABLE certificates ADD COLUMN parent_ca_serial TEXT DEFAULT ''")
+
+    # 更新 CHECK 约束以支持 intermediate_ca 类型
+    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='certificates'")
+    row = cursor.fetchone()
+    if row and "intermediate_ca" not in row[0]:
+        new_sql = row[0].replace(
+            "cert_type IN ('signing', 'encryption')",
+            "cert_type IN ('signing', 'encryption', 'intermediate_ca')"
+        )
+        cursor.execute("PRAGMA writable_schema = ON")
+        cursor.execute("UPDATE sqlite_master SET sql = ? WHERE type = 'table' AND name = 'certificates'", (new_sql,))
+        cursor.execute("PRAGMA writable_schema = OFF")
 
 
 # ── 根 CA 操作 ──────────────────────────────────────────────────────
@@ -130,16 +156,18 @@ def get_root_ca_history() -> list[dict]:
 
 # ── 证书操作 ────────────────────────────────────────────────────────
 
-def save_certificate(info: dict, cert_type: str, group_id: str, issuer_dn: str) -> int:
-    """保存用户证书，返回插入记录的主键 ID。"""
+def save_certificate(info: dict, cert_type: str, group_id: str, issuer_dn: str,
+                     is_ca: bool = False, parent_ca_serial: str = "") -> int:
+    """保存证书，返回插入记录的主键 ID。is_ca 标记是否为 CA 证书。"""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT INTO certificates (serial_number, group_id, subject_dn, issuer_dn,
                                   cert_type, algorithm, cert_pem, key_pem,
-                                  cert_file_path, key_file_path, issue_date, expiry_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                                  cert_file_path, key_file_path, issue_date, expiry_date,
+                                  status, is_ca, parent_ca_serial)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
     """, (
         info["serial"],
         group_id,
@@ -153,12 +181,125 @@ def save_certificate(info: dict, cert_type: str, group_id: str, issuer_dn: str) 
         info["key_file"],
         info["issue_date"],
         info["expiry_date"],
+        1 if is_ca else 0,
+        parent_ca_serial,
     ))
 
     conn.commit()
     row_id = cursor.lastrowid
     conn.close()
     return row_id
+
+
+def get_ca_list() -> list[dict]:
+    """获取所有 CA 证书列表（根 CA + 中间 CA）。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    # 活跃的根 CA
+    cursor.execute("SELECT * FROM root_ca WHERE status = 'active' ORDER BY created_at DESC")
+    roots = [dict(r) for r in cursor.fetchall()]
+    for r in roots:
+        r["_level"] = "root"
+        r["_parent_serial"] = ""
+    # 活跃的中间 CA
+    cursor.execute(
+        "SELECT * FROM certificates WHERE is_ca = 1 AND status = 'active' ORDER BY created_at DESC"
+    )
+    intermediates = [dict(r) for r in cursor.fetchall()]
+    for ca in intermediates:
+        ca["_level"] = "intermediate"
+    conn.close()
+    return roots + intermediates
+
+
+def get_ca_by_serial(serial: str) -> dict | None:
+    """按序列号查找 CA 证书（先查根 CA，再查证书表）。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM root_ca WHERE serial_number = ? AND status = 'active'", (serial,))
+    row = cursor.fetchone()
+    if row:
+        result = dict(row)
+        result["_level"] = "root"
+        result["cert_type"] = "root_ca"
+        result["serial_number"] = result.get("serial_number", "")
+        result["subject_dn"] = result.get("subject_dn", "")
+        result["cert_pem"] = result.get("cert_pem", "")
+        conn.close()
+        return result
+
+    cursor.execute(
+        "SELECT * FROM certificates WHERE serial_number = ? AND is_ca = 1 AND status = 'active'", (serial,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        result = dict(row)
+        result["_level"] = "intermediate"
+        return result
+    return None
+
+
+def get_cert_chain(leaf_serial: str) -> list[dict]:
+    """
+    从叶子证书向上追溯，构建完整的证书链。
+    返回从端实体到根 CA 的列表。
+    """
+    chain = []
+    visited = set()
+    current_serial = leaf_serial
+
+    while current_serial and current_serial not in visited:
+        visited.add(current_serial)
+        cert = get_certificate_by_serial(current_serial)
+        if not cert:
+            # 尝试从根 CA 表查找
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM root_ca WHERE serial_number = ?", (current_serial,))
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                r = dict(row)
+                r["serial_number"] = r.get("serial_number", "")
+                r["subject_dn"] = r.get("subject_dn", "")
+                r["issuer_dn"] = r.get("subject_dn", "")  # 自签名
+                r["cert_type"] = "root_ca"
+                r["cert_pem"] = r.get("cert_pem", "")
+                r["key_pem"] = ""
+                chain.append(r)
+                break
+            else:
+                break
+
+        chain.append(cert)
+
+        # 获取父 CA 序列号
+        parent = cert.get("parent_ca_serial", "")
+        if not parent or parent == cert.get("serial_number", ""):
+            # 没有父 CA，尝试从 issuer_dn 查找根 CA
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM root_ca WHERE subject_dn = ? AND status = 'active'",
+                (cert["issuer_dn"],)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                r = dict(row)
+                r["serial_number"] = r.get("serial_number", "")
+                r["subject_dn"] = r.get("subject_dn", "")
+                r["issuer_dn"] = r.get("subject_dn", "")
+                r["cert_type"] = "root_ca"
+                r["cert_pem"] = r.get("cert_pem", "")
+                r["key_pem"] = ""
+                chain.append(r)
+            break
+
+        current_serial = parent
+
+    return chain
 
 
 def get_certificates(status: str = None, cert_type: str = None) -> list[dict]:

@@ -678,6 +678,245 @@ def rekey_single_cert(
     }
 
 
+def issue_intermediate_ca(
+    parent_cert_path: str,
+    parent_key_path: str,
+    dn: str,
+    days: int = 1825,
+    algorithm: str = "ECDSA-P256",
+    pathlen: int = 1,
+) -> tuple[bool, str, dict]:
+    """
+    由上级 CA 签发中间 CA 证书。
+    使用 openssl x509 -req 直接签发，不依赖 ca 索引数据库。
+    pathlen: 中间 CA 可以再签发几级子 CA（0 表示不可再签发下级 CA）。
+    返回 (是否成功, 错误信息, 信息字典)。
+    """
+    pki_dir = str(PKI_DIR)
+
+    if not os.path.exists(parent_cert_path):
+        return False, f"上级 CA 证书不存在: {parent_cert_path}", {}
+    if not os.path.exists(parent_key_path):
+        return False, f"上级 CA 私钥不存在: {parent_key_path}", {}
+
+    ts = _now_compact()
+
+    # 确定曲线和哈希
+    if algorithm == "SM2":
+        md_flag = "-sm3"
+        curve = "SM2"
+    else:
+        md_flag = "-sha256"
+        curve = "prime256v1"
+
+    ica_key = os.path.join(pki_dir, f"intermediate-ca-{ts}.key")
+    ica_csr = os.path.join(pki_dir, f"intermediate-ca-{ts}.csr")
+    ica_conf = os.path.join(pki_dir, f"intermediate-ca-{ts}.cnf")
+    ica_cert_tmp = os.path.join(pki_dir, f"intermediate-ca-{ts}.crt")
+
+    write_req_conf(ica_conf, dn)
+
+    # 生成中间 CA 的密钥对
+    ok, err = generate_keypair(ica_key, algorithm)
+    if not ok:
+        return False, f"中间 CA 密钥生成失败: {err}", {}
+
+    # 生成 CSR
+    cmd = (
+        f'{OPENSSL_BIN} req -new {md_flag} -key "{ica_key}" '
+        f'-config "{ica_conf}" -out "{ica_csr}"'
+    )
+    if not _run_ok(cmd):
+        return False, "中间 CA CSR 生成失败", {}
+
+    # 由上级 CA 直接签发（openssl x509 -req 方式，不依赖 ca 索引）
+    ext_content = (
+        f"basicConstraints=critical,CA:TRUE,pathlen:{pathlen}\n"
+        "keyUsage=critical,digitalSignature,nonRepudiation,keyCertSign,cRLSign\n"
+    )
+    ext_file = os.path.join(pki_dir, f"intermediate-ca-{ts}.ext")
+    with open(ext_file, "w") as f:
+        f.write(ext_content)
+
+    cmd = (
+        f'{OPENSSL_BIN} x509 -req {md_flag} '
+        f'-in "{ica_csr}" -CA "{parent_cert_path}" -CAkey "{parent_key_path}" '
+        f'-days {days} -CAcreateserial '
+        f'-extfile "{ext_file}" '
+        f'-out "{ica_cert_tmp}"'
+    )
+    if not _run_ok(cmd):
+        return False, "中间 CA 签发失败（上级 CA 签名错误）", {}
+
+    serial = get_cert_serial(ica_cert_tmp)
+
+    # 移动到最终位置
+    cert_final = os.path.join(pki_dir, "active-certificates", f"{serial}.cer.pem")
+    key_final = os.path.join(pki_dir, "active-keys", f"{serial}.key.pem")
+    os.makedirs(os.path.dirname(cert_final), exist_ok=True)
+    os.makedirs(os.path.dirname(key_final), exist_ok=True)
+    os.rename(ica_cert_tmp, cert_final)
+    os.rename(ica_key, key_final)
+
+    start, end = get_cert_dates(cert_final)
+    subject = get_cert_subject(cert_final)
+    parent_serial = get_cert_serial(parent_cert_path)
+    parent_subject = get_cert_subject(parent_cert_path)
+
+    with open(cert_final) as f:
+        cert_pem = f.read()
+    with open(key_final) as f:
+        key_pem = f.read()
+
+    return True, "", {
+        "serial": serial,
+        "subject": subject,
+        "algorithm": algorithm,
+        "issue_date": start,
+        "expiry_date": end,
+        "days": days,
+        "cert_pem": cert_pem,
+        "key_pem": key_pem,
+        "cert_file": cert_final,
+        "key_file": key_final,
+        "parent_serial": parent_serial,
+        "parent_subject": parent_subject,
+        "pathlen": pathlen,
+    }
+
+
+def issue_user_cert_by_ca(
+    ca_cert_path: str,
+    ca_key_path: str,
+    dn: str,
+    days: int = 365,
+    algorithm: str = "ECDSA-P256",
+) -> tuple[bool, str, dict]:
+    """
+    由指定 CA（根 CA 或中间 CA）签发用户双证书。
+    使用 openssl x509 -req 方式，不依赖 ca 索引。
+    返回 (是否成功, 错误信息, 信息字典)。
+    """
+    pki_dir = str(PKI_DIR)
+
+    if not os.path.exists(ca_cert_path):
+        return False, f"CA 证书不存在: {ca_cert_path}", {}
+    if not os.path.exists(ca_key_path):
+        return False, f"CA 私钥不存在: {ca_key_path}", {}
+
+    ts = _now_compact()
+    results = {}
+
+    if algorithm == "SM2":
+        md_flag = "-sm3"
+        curve = "SM2"
+    else:
+        md_flag = "-sha256"
+        curve = "prime256v1"
+
+    for cert_type in ["signing", "encryption"]:
+        key_file = os.path.join(pki_dir, f"tmp-{cert_type}-{ts}.key")
+        csr_file = os.path.join(pki_dir, f"tmp-{cert_type}-{ts}.csr")
+        conf_file = os.path.join(pki_dir, f"tmp-{cert_type}-{ts}.cnf")
+        cert_tmp = os.path.join(pki_dir, f"tmp-{cert_type}-{ts}.crt")
+        ext_file = os.path.join(pki_dir, f"tmp-{cert_type}-{ts}.ext")
+
+        write_req_conf(conf_file, dn)
+
+        # 生成密钥
+        cmd = f'{OPENSSL_BIN} ecparam -name {curve} -genkey -noout -out "{key_file}"'
+        if not _run_ok(cmd):
+            return False, f"{cert_type} 密钥生成失败", {}
+
+        # 生成 CSR
+        cmd = (
+            f'{OPENSSL_BIN} req -new {md_flag} -key "{key_file}" '
+            f'-config "{conf_file}" -out "{csr_file}"'
+        )
+        if not _run_ok(cmd):
+            return False, f"{cert_type} CSR 生成失败", {}
+
+        # 写入扩展
+        if cert_type == "signing":
+            ext = "basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,nonRepudiation\nextendedKeyUsage=clientAuth,serverAuth\n"
+        else:
+            ext = "basicConstraints=CA:FALSE\nkeyUsage=keyAgreement,keyEncipherment,dataEncipherment\nextendedKeyUsage=clientAuth,serverAuth\n"
+        with open(ext_file, "w") as f:
+            f.write(ext)
+
+        # 由指定 CA 签发
+        cmd = (
+            f'{OPENSSL_BIN} x509 -req {md_flag} '
+            f'-in "{csr_file}" -CA "{ca_cert_path}" -CAkey "{ca_key_path}" '
+            f'-days {days} -CAcreateserial '
+            f'-extfile "{ext_file}" '
+            f'-out "{cert_tmp}"'
+        )
+        if not _run_ok(cmd):
+            return False, f"{cert_type} 签发失败", {}
+
+        serial = get_cert_serial(cert_tmp)
+
+        cert_final = os.path.join(pki_dir, "active-certificates", f"{serial}.cer.pem")
+        key_final = os.path.join(pki_dir, "active-keys", f"{serial}.key.pem")
+        os.makedirs(os.path.dirname(cert_final), exist_ok=True)
+        os.makedirs(os.path.dirname(key_final), exist_ok=True)
+        os.rename(cert_tmp, cert_final)
+        os.rename(key_file, key_final)
+
+        start, end = get_cert_dates(cert_final)
+        with open(cert_final) as f:
+            cert_pem = f.read()
+        with open(key_final) as f:
+            key_pem = f.read()
+
+        results[cert_type] = {
+            "serial": serial,
+            "type": cert_type,
+            "cert_file": cert_final,
+            "key_file": key_final,
+            "cert_pem": cert_pem,
+            "key_pem": key_pem,
+            "issue_date": start,
+            "expiry_date": end,
+        }
+
+    return True, "", {
+        "signing": results.get("signing", {}),
+        "encryption": results.get("encryption", {}),
+        "dn": dn,
+        "algorithm": algorithm,
+        "days": days,
+    }
+
+
+def verify_cert_chain(cert_path: str, ca_cert_path: str) -> tuple[bool, str]:
+    """
+    验证证书链：检查 cert 是否由 ca 签发。
+    返回 (是否通过, 输出信息)。
+    """
+    cmd = (
+        f'{OPENSSL_BIN} verify -CAfile "{ca_cert_path}" "{cert_path}"'
+    )
+    rc, out, err = _run(cmd)
+    combined = out + "\n" + err
+    return rc == 0, combined
+
+
+def export_chain_pem(cert_files: list[str]) -> str:
+    """
+    将多个证书 PEM 文件拼接为证书链（从叶子到根）。
+    cert_files: 证书文件路径列表，从端实体到根 CA。
+    返回拼接后的 PEM 字符串。
+    """
+    chain_parts = []
+    for cf in cert_files:
+        if os.path.exists(cf):
+            with open(cf) as f:
+                chain_parts.append(f.read().strip())
+    return "\n".join(chain_parts)
+
+
 def build_dn(cn: str, ou: str = "", o: str = "", email: str = "",
              st: str = "", l: str = "", c: str = "") -> str:
     """构建 OpenSSL 格式的 DN 字符串。"""

@@ -82,6 +82,24 @@ class RekeyRequest(BaseModel):
     algorithm: str = Field(default="ECDSA-P256", description="新密钥算法")
 
 
+class IssueIntermediateRequest(BaseModel):
+    parent_ca_serial: str = Field(..., description="上级 CA 的序列号")
+    cn: str = Field(..., description="通用名称")
+    ou: str = Field(default="", description="组织单位")
+    o: str = Field(default="", description="组织")
+    email: str = Field(default="", description="电子邮箱")
+    st: str = Field(default="", description="省份")
+    l: str = Field(default="", description="城市")
+    c: str = Field(default="", description="国家")
+    days: int = Field(default=1825, ge=1, le=36500, description="有效天数")
+    algorithm: str = Field(default="ECDSA-P256", description="算法")
+    pathlen: int = Field(default=1, ge=0, le=5, description="可再签发子CA级数")
+
+
+class IssueUserWithCARequest(IssueUserRequest):
+    ca_serial: str = Field(default="", description="签发 CA 序列号，为空则使用根 CA")
+
+
 # ── 静态文件与前端页面 ───────────────────────────────────────────
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -183,39 +201,238 @@ async def get_root_ca_info():
     }
 
 
-# ── 证书端点 ─────────────────────────────────────────────────────
+@app.get("/api/ca/list")
+async def get_ca_list():
+    """获取所有 CA 列表（根 CA + 中间 CA）。"""
+    cas = database.get_ca_list()
+    return {
+        "status": "ok",
+        "count": len(cas),
+        "cas": [
+            {
+                "serial": ca.get("serial_number", ca.get("serial", "")),
+                "subject": ca.get("subject_dn", ca.get("subject", "")),
+                "level": ca["_level"],
+                "type": ca.get("cert_type", "root_ca"),
+                "algorithm": ca.get("algorithm", ""),
+                "issue_date": ca.get("issue_date", ""),
+                "expiry_date": ca.get("expiry_date", ""),
+                "parent_ca_serial": ca.get("parent_ca_serial", ca.get("_parent_serial", "")),
+            }
+            for ca in cas
+        ],
+    }
 
-@app.post("/api/certificates/issue")
-async def issue_certificate(req: IssueUserRequest):
-    """签发用户证书（签名 + 加密双证书）。"""
+
+@app.post("/api/ca/issue-intermediate")
+async def issue_intermediate_ca(req: IssueIntermediateRequest):
+    """由上级 CA 签发中间 CA 证书。"""
     try:
-        # 检查根 CA 是否存在
-        root = database.get_active_root_ca()
-        if not root:
-            raise HTTPException(status_code=400, detail="未找到根 CA 证书，请先签发根证书。")
+        # 查找上级 CA
+        parent = database.get_ca_by_serial(req.parent_ca_serial)
+        if not parent:
+            raise HTTPException(status_code=404, detail=f"上级 CA {req.parent_ca_serial} 未找到。")
+
+        parent_cert_path = parent.get("cert_file_path", "")
+        parent_key_path = parent.get("key_file_path", "")
+
+        # 根 CA 的特殊处理
+        if parent["_level"] == "root":
+            parent_cert_path = os.path.join(str(crypto_utils.PKI_DIR), "root.crt")
+            parent_key_path = os.path.join(str(crypto_utils.PKI_DIR), "root-private.key")
+
+        if not os.path.exists(parent_cert_path):
+            raise HTTPException(status_code=400, detail=f"上级 CA 证书文件不存在: {parent_cert_path}")
+        if not os.path.exists(parent_key_path):
+            raise HTTPException(status_code=400, detail=f"上级 CA 私钥文件不存在: {parent_key_path}")
 
         dn = crypto_utils.build_dn(
             cn=req.cn, ou=req.ou, o=req.o, email=req.email,
             st=req.st, l=req.l, c=req.c,
         )
 
-        ok, err, result = crypto_utils.issue_user_cert(
-            dn=dn, days=req.days, algorithm=req.algorithm,
+        ok, err, info = crypto_utils.issue_intermediate_ca(
+            parent_cert_path=parent_cert_path,
+            parent_key_path=parent_key_path,
+            dn=dn,
+            days=req.days,
+            algorithm=req.algorithm,
+            pathlen=req.pathlen,
         )
+
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        # 保存到数据库
+        issuer_dn = parent.get("subject_dn", parent.get("subject", ""))
+        cert_info = info.copy()
+        cert_info["dn"] = dn
+        database.save_certificate(
+            cert_info,
+            cert_type="intermediate_ca",
+            group_id=f"ica-{crypto_utils._now_compact()}",
+            issuer_dn=issuer_dn,
+            is_ca=True,
+            parent_ca_serial=req.parent_ca_serial,
+        )
+
+        return {
+            "status": "ok",
+            "message": f"中间 CA 签发成功。",
+            "data": {
+                "serial": info["serial"],
+                "subject": info["subject"],
+                "parent_serial": info["parent_serial"],
+                "parent_subject": info["parent_subject"],
+                "algorithm": info["algorithm"],
+                "issue_date": info["issue_date"],
+                "expiry_date": info["expiry_date"],
+                "pathlen": info["pathlen"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── 证书链验证与导出 ────────────────────────────────────────────
+
+@app.get("/api/certificates/{serial}/chain")
+async def get_certificate_chain(serial: str):
+    """获取证书的完整信任链（从端实体到根 CA）。"""
+    try:
+        chain = database.get_cert_chain(serial)
+        if not chain:
+            raise HTTPException(status_code=404, detail=f"未找到证书 {serial} 的信任链。")
+
+        chain_info = []
+        for i, c in enumerate(chain):
+            level = "root" if c.get("cert_type") == "root_ca" else (
+                "intermediate" if (c.get("is_ca") or c.get("cert_type") == "intermediate_ca") else "end-entity"
+            )
+            if c.get("cert_type") == "root_ca":
+                level = "root"
+            elif c.get("is_ca"):
+                level = "intermediate"
+            else:
+                level = "end-entity"
+
+            chain_info.append({
+                "depth": i,
+                "serial": c.get("serial_number", c.get("serial", "")),
+                "subject": c.get("subject_dn", c.get("subject", "")),
+                "issuer": c.get("issuer_dn", c.get("subject", "")),
+                "type": c.get("cert_type", ""),
+                "level": level,
+                "cert_pem": c.get("cert_pem", ""),
+                "issue_date": c.get("issue_date", ""),
+                "expiry_date": c.get("expiry_date", ""),
+            })
+
+        return {
+            "status": "ok",
+            "chain_length": len(chain_info),
+            "chain": chain_info,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/certificates/{serial}/chain/download")
+async def download_certificate_chain(serial: str):
+    """下载完整证书链 PEM 文件。"""
+    try:
+        chain = database.get_cert_chain(serial)
+        if not chain:
+            raise HTTPException(status_code=404, detail=f"未找到证书 {serial} 的信任链。")
+
+        pem_parts = []
+        for c in chain:
+            pem = c.get("cert_pem", "")
+            if pem:
+                pem_parts.append(pem.strip())
+
+        chain_pem = "\n".join(pem_parts)
+        filename = f"chain-{serial}.pem"
+
+        return {
+            "status": "ok",
+            "filename": filename,
+            "content": chain_pem,
+            "chain_length": len(pem_parts),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── 证书端点 ─────────────────────────────────────────────────────
+
+@app.post("/api/certificates/issue")
+async def issue_certificate(req: IssueUserWithCARequest):
+    """签发用户证书（签名 + 加密双证书）。支持指定签发 CA（根 CA 或中间 CA）。"""
+    try:
+        dn = crypto_utils.build_dn(
+            cn=req.cn, ou=req.ou, o=req.o, email=req.email,
+            st=req.st, l=req.l, c=req.c,
+        )
+
+        # 确定使用哪个 CA 签发
+        parent_ca_serial = ""
+        if req.ca_serial:
+            # 使用指定的中间 CA 或根 CA 签发
+            ca = database.get_ca_by_serial(req.ca_serial)
+            if not ca:
+                raise HTTPException(status_code=404, detail=f"CA {req.ca_serial} 未找到。")
+
+            ca_cert_path = ca.get("cert_file_path", "")
+            ca_key_path = ca.get("key_file_path", "")
+
+            if ca["_level"] == "root":
+                ca_cert_path = os.path.join(str(crypto_utils.PKI_DIR), "root.crt")
+                ca_key_path = os.path.join(str(crypto_utils.PKI_DIR), "root-private.key")
+
+            if not os.path.exists(ca_cert_path):
+                raise HTTPException(status_code=400, detail=f"CA 证书文件不存在: {ca_cert_path}")
+            if not os.path.exists(ca_key_path):
+                raise HTTPException(status_code=400, detail=f"CA 私钥文件不存在: {ca_key_path}")
+
+            issuer_dn = ca.get("subject_dn", ca.get("subject", ""))
+            ok, err, result = crypto_utils.issue_user_cert_by_ca(
+                ca_cert_path=ca_cert_path,
+                ca_key_path=ca_key_path,
+                dn=dn, days=req.days, algorithm=req.algorithm,
+            )
+            parent_ca_serial = req.ca_serial
+        else:
+            # 默认使用根 CA 签发（原有逻辑）
+            root = database.get_active_root_ca()
+            if not root:
+                raise HTTPException(status_code=400, detail="未找到根 CA 证书，请先签发根证书。")
+            issuer_dn = root["subject_dn"]
+            ok, err, result = crypto_utils.issue_user_cert(
+                dn=dn, days=req.days, algorithm=req.algorithm,
+            )
 
         if not ok:
             raise HTTPException(status_code=400, detail=err)
 
         # 为双证书对生成组 ID
         group_id = f"{crypto_utils._now_compact()}{uuid.uuid4().hex[:4]}"
-        issuer_dn = root["subject_dn"]
 
         saved_certs = []
         for cert_type in ["signing", "encryption"]:
             cert_info = result[cert_type].copy()
             cert_info["dn"] = dn
             cert_info["algorithm"] = req.algorithm
-            cert_id = database.save_certificate(cert_info, cert_type, group_id, issuer_dn)
+            cert_id = database.save_certificate(
+                cert_info, cert_type, group_id, issuer_dn,
+                parent_ca_serial=parent_ca_serial,
+            )
             saved_certs.append({
                 "id": cert_id,
                 "serial": cert_info["serial"],
@@ -233,6 +450,7 @@ async def issue_certificate(req: IssueUserRequest):
                 "certificates": saved_certs,
                 "algorithm": req.algorithm,
                 "days": req.days,
+                "issuer_ca": parent_ca_serial or "root",
             },
         }
     except HTTPException:
