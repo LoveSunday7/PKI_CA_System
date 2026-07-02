@@ -31,38 +31,69 @@ body {
   color: var(--text);
   line-height: 1.6;
   min-height: 100vh;
+  display: flex;
 }
+
+/* ── 应用布局容器 ── */
+.app-layout { display: flex; flex-direction: column; width: 100%; min-height: 100vh; }
 
 /* ── 页面头部 ── */
 .header {
-  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
-  color: #fff;
-  padding: 20px 32px;
-  display: flex; align-items: center; justify-content: space-between;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  background: linear-gradient(135deg, #0f1d35 0%, #1e3a5f 40%, #2563eb 100%);
+  color: #fff; padding: 16px 32px; display: flex; align-items: center;
+  justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,.2);
+  z-index: 50; position: relative;
 }
-.header h1 { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
-.header .subtitle { font-size: 13px; opacity: .85; margin-top: 2px; }
+.header-left { display: flex; align-items: center; gap: 14px; }
+.header-logo {
+  width: 40px; height: 40px; background: rgba(255,255,255,.15); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+}
+.header h1 { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+.header .subtitle { font-size: 12px; opacity: .7; margin-top: 1px; }
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .status-dot.ok { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
 .status-dot.err { background: #f87171; box-shadow: 0 0 6px #f87171; }
-.header .status-bar { font-size: 13px; display: flex; align-items: center; gap: 16px; }
+.header .status-bar { font-size: 12px; display: flex; align-items: center; gap: 14px; }
 
-/* ── 导航标签 ── */
-.nav { display: flex; gap: 0; background: var(--surface); border-bottom: 2px solid var(--border); padding: 0 32px; }
-.nav-btn {
-  padding: 14px 28px; border: none; background: none; font-size: 15px;
-  font-weight: 500; color: var(--text-secondary); cursor: pointer;
-  border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: all .2s; font-family: inherit;
+/* ── 主体区域（侧边栏 + 内容） ── */
+.body-wrap { display: flex; flex: 1; }
+
+/* ── 左侧边栏导航 ── */
+.sidebar {
+  width: 240px; min-width: 240px; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 20px 0;
+  display: flex; flex-direction: column; position: sticky; top: 0;
+  height: calc(100vh - 76px); overflow-y: auto; z-index: 40;
 }
-.nav-btn:hover { color: var(--primary); background: #f8fafc; }
-.nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.sidebar-section { padding: 0 16px; margin-bottom: 8px; }
+.sidebar-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--text-secondary); padding: 8px 12px 6px;
+}
+.nav-btn {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 16px; border: none; background: none; font-size: 14px;
+  font-weight: 500; color: var(--text-secondary); cursor: pointer;
+  border-radius: 8px; margin: 2px 8px; transition: all .2s;
+  font-family: inherit; text-align: left; white-space: nowrap;
+}
+.nav-btn:hover { color: var(--primary); background: #eff6ff; }
+.nav-btn.active { color: #fff; background: var(--primary); font-weight: 600; box-shadow: 0 2px 8px rgba(37,99,235,.3); }
+.nav-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto; background: var(--danger); color: #fff; font-size: 10px;
+  padding: 2px 8px; border-radius: 10px; font-weight: 600;
+}
 
 /* ── 主内容区 ── */
-.main { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+.main {
+  flex: 1; padding: 28px 32px; overflow-y: auto; max-width: calc(100vw - 240px);
+  background: var(--bg);
+}
 .panel { display: none; }
-.panel.active { display: block; }
+.panel.active { display: block; animation: fadeIn .25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── 卡片容器 ── */
 .card {
@@ -211,37 +242,142 @@ tr:hover td { background: #f8fafc; }
 
 /* ── 响应式布局 ── */
 @media (max-width: 768px) {
+  .sidebar { width: 64px; min-width: 64px; padding: 12px 0; }
+  .sidebar-label { display: none; }
+  .nav-btn { padding: 12px 8px; justify-content: center; border-radius: 0; margin: 0; }
+  .nav-btn span:not(.nav-icon) { display: none; }
+  .nav-badge { display: none; }
+  .nav-icon { font-size: 22px; margin: 0; }
+  .main { padding: 16px; max-width: calc(100vw - 64px); }
   .form-grid { grid-template-columns: 1fr; }
   .stats-row { grid-template-columns: 1fr 1fr; }
-  .nav { padding: 0 12px; overflow-x: auto; }
-  .nav-btn { padding: 12px 16px; font-size: 13px; white-space: nowrap; }
-  .header { flex-direction: column; gap: 8px; text-align: center; }
+  .header { padding: 12px 16px; }
+  .header h1 { font-size: 16px; }
+  .header .subtitle { display: none; }
 }
 
 .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
 .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+/* ── 暗色主题 ── */
+[data-theme="dark"] {
+  --bg: #0f172a; --surface: #1e293b; --border: #334155;
+  --text: #e2e8f0; --text-secondary: #94a3b8;
+  --shadow: 0 1px 3px rgba(0,0,0,.3); --shadow-lg: 0 4px 12px rgba(0,0,0,.4);
+}
+[data-theme="dark"] .nav-btn:hover { background: #1e3a5f; }
+[data-theme="dark"] .sidebar { border-right-color: var(--border); }
+[data-theme="dark"] .card { border-color: var(--border); }
+[data-theme="dark"] th { background: #1e293b; }
+[data-theme="dark"] tr:hover td { background: #1e3a5f; }
+[data-theme="dark"] .form-group input, [data-theme="dark"] .form-group select { background: #0f172a; color: var(--text); border-color: var(--border); }
+[data-theme="dark"] .form-group input:focus, [data-theme="dark"] .form-group select:focus { border-color: var(--primary); }
+[data-theme="dark"] .btn-outline { background: var(--surface); color: var(--primary); border-color: var(--primary); }
+[data-theme="dark"] .btn-outline:hover { background: #1e3a5f; }
+[data-theme="dark"] .upload-area:hover { background: #1e293b; }
+[data-theme="dark"] .output-box { background: #0f172a; border-color: #334155; }
+[data-theme="dark"] .modal { background: var(--surface); }
+[data-theme="dark"] .sub-tab { background: var(--surface); }
+
+/* ── 树形图 ── */
+.tree { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 16px 0; }
+.tree-node {
+  position: relative; padding: 12px 20px; border: 2px solid var(--primary);
+  border-radius: 10px; text-align: center; min-width: 200px;
+  background: var(--surface); z-index: 1; margin: 4px 0;
+}
+.tree-node.root { border-color: #f59e0b; background: #fffbeb; }
+.tree-node.intermediate { border-color: #8b5cf6; background: #f5f3ff; }
+.tree-node.leaf { border-color: var(--primary); }
+[data-theme="dark"] .tree-node.root { background: #451a03; }
+[data-theme="dark"] .tree-node.intermediate { background: #2e1065; }
+.tree-connector {
+  display: flex; flex-direction: column; align-items: center; color: var(--text-secondary);
+  font-size: 18px; line-height: 1; margin: -2px 0;
+}
+.tree-connector::before { content: '│'; }
+.tree-connector .arrow { font-size: 12px; color: var(--text-secondary); }
+
+/* ── 图表 ── */
+.bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 160px; padding: 8px 0; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+.bar-fill { width: 100%; max-width: 40px; background: var(--primary); border-radius: 4px 4px 0 0; min-height: 4px; transition: height .5s; }
+.bar-label { font-size: 10px; color: var(--text-secondary); text-align: center; }
+.bar-val { font-size: 11px; font-weight: 600; color: var(--text); }
+
+/* ── 饼图 ── */
+.pie-chart { width: 140px; height: 140px; border-radius: 50%; margin: 0 auto; }
+.pie-legend { display: flex; gap: 16px; justify-content: center; margin-top: 12px; font-size: 13px; }
+.pie-legend span { display: flex; align-items: center; gap: 6px; }
+.pie-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+/* ── 时间线 ── */
+.timeline { position: relative; padding-left: 24px; }
+.timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.timeline-item { position: relative; margin-bottom: 14px; padding-left: 12px; }
+.timeline-item::before { content: ''; position: absolute; left: -20px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); border: 2px solid var(--surface); }
+.timeline-item.revoke::before { background: var(--danger); }
+.timeline-item.issue::before { background: var(--success); }
+.timeline-time { font-size: 11px; color: var(--text-secondary); }
+.timeline-text { font-size: 13px; }
+
+/* ── 演示模式按钮 ── */
+.demo-btn { background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff; }
+.demo-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+
+/* ── 主题切换按钮 ── */
+.theme-toggle {
+  background: none; border: 1px solid rgba(255,255,255,.3); color: #fff;
+  border-radius: 20px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+  font-family: inherit; transition: all .2s;
+}
+.theme-toggle:hover { background: rgba(255,255,255,.15); }
 </style>
 </head>
 <body>
 
+<div class="app-layout">
 <div class="header">
-  <div>
-    <h1>🔐 PKI/CA 数字证书管理系统</h1>
-    <div class="subtitle">根证书签发 · 用户双证书签发 · 证书注销 · CRL管理</div>
+  <div class="header-left">
+    <div class="header-logo">🔐</div>
+    <div>
+      <h1>PKI/CA 数字证书管理系统</h1>
+      <div class="subtitle">根证书签发 · 用户双证书签发 · 证书注销 · CRL管理 · OCSP状态查询</div>
+    </div>
   </div>
   <div class="status-bar">
-    <span><span class="status-dot ok" id="sysDot"></span> 系统: <span id="sysStatus">检测中...</span></span>
-    <span>OpenSSL: <span id="opensslVer">-</span></span>
+    <span><span class="status-dot ok" id="sysDot"></span><span id="sysStatus">检测中...</span></span>
+    <span style="opacity:.7;">OpenSSL <span id="opensslVer">-</span></span>
+    <button class="theme-toggle" onclick="toggleDarkMode()" id="themeBtn">🌙</button>
   </div>
 </div>
 
-<nav class="nav">
-  <button class="nav-btn active" data-panel="root">🏛️ 签发根证书</button>
-  <button class="nav-btn" data-panel="user">👤 签发用户证书</button>
-  <button class="nav-btn" data-panel="revoke">🗑️ 证书注销与CRL</button>
+<div class="body-wrap">
+<nav class="sidebar">
+  <div class="sidebar-label">证书管理</div>
+  <button class="nav-btn active" data-panel="root">
+    <span class="nav-icon">🏛️</span><span>签发根证书</span>
+  </button>
+  <button class="nav-btn" data-panel="user">
+    <span class="nav-icon">👤</span><span>签发用户证书</span>
+  </button>
+  <button class="nav-btn" data-panel="revoke">
+    <span class="nav-icon">🗑️</span><span>证书注销与CRL</span>
+  </button>
+  <div class="sidebar-label" style="margin-top:8px;">监控与分析</div>
+  <button class="nav-btn" data-panel="dashboard">
+    <span class="nav-icon">📊</span><span>仪表盘</span>
+    <span class="nav-badge" id="expiringBadge" style="display:none;">!</span>
+  </button>
 </nav>
 
 <div class="main">
+
+  <!-- ══════ 演示模式按钮 ──>
+  <div id="demoBanner" style="display:none; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:#fff; padding:10px 20px; border-radius:8px; margin-bottom:16px; text-align:center;">
+    🎓 系统数据为空，点击一键生成演示数据：
+    <button class="btn demo-btn btn-sm" onclick="generateDemoData()" style="margin-left:10px;">✨ 生成演示数据</button>
+  </div>
 
   <!-- ══════ 统计行 ══════ -->
   <div class="stats-row" id="statsRow"></div>
@@ -430,6 +566,39 @@ tr:hover td { background: #f8fafc; }
   </section>
 </div>
 
+  <!-- ══════ 面板：仪表盘 ══════ -->
+  <section class="panel" id="panel-dashboard">
+    <div class="stats-row" id="dashStatsRow"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+      <div class="card">
+        <div class="card-title">📈 签发趋势（近6个月）</div>
+        <div class="bar-chart" id="trendChart"><span style="color:var(--text-secondary);">加载中...</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🍩 证书类型分布</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;">
+          <div class="pie-chart" id="typePie" style="background:var(--border);"></div>
+          <div class="pie-legend" id="pieLegend"></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:3fr 2fr; gap:20px;">
+      <div class="card">
+        <div class="card-title">🕐 近期活动时间线</div>
+        <div class="timeline" id="activityTimeline"><span style="color:var(--text-secondary);">加载中...</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 CA 层级概览</div>
+        <div id="caTreeOverview" style="text-align:center;"><span style="color:var(--text-secondary);">加载中...</span></div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- .main -->
+</div><!-- .body-wrap -->
+</div><!-- .app-layout -->
+
 <!-- ══════ 证书详情弹窗 ══════ -->
 <div class="modal-overlay" id="certModal">
   <div class="modal">
@@ -534,6 +703,12 @@ async function loadStatus() {
       `;
       $('rootExistsAlert').style.display = (r.root_ca && r.root_ca.exists) ? '' : 'none';
       $('noRootAlert').style.display = (r.root_ca && r.root_ca.exists) ? 'none' : '';
+      // 更新过期预警徽章
+      api('/api/certificates/expiring?within_days=30').then(er => {
+        const badge = $('expiringBadge');
+        if (er.count > 0) { badge.style.display = ''; badge.textContent = er.count; }
+        else { badge.style.display = 'none'; }
+      }).catch(()=>{});
       // 根证书已存在时禁用签发按钮
       const rootBtns = document.querySelectorAll('#panel-root .btn-primary');
       rootBtns.forEach(b => { if (r.root_ca && r.root_ca.exists) b.disabled = true; else b.disabled = false; });
@@ -875,22 +1050,24 @@ async function viewCert(serial) {
     const r = await api(`/api/certificates/${serial}`);
     if (r.certificate) {
       const c = r.certificate;
-      // 加载证书链
-      let chainHtml = '<div style="margin-top:16px; font-size:12px; color:var(--text-secondary);">信任链加载中...</div>';
+      // 加载证书链（树形图）
+      let chainHtml = '<div style="margin-top:16px;font-size:12px;color:var(--text-secondary);">信任链加载中...</div>';
       api(`/api/certificates/${serial}/chain`).then(cr => {
         if (cr.status === 'ok' && cr.chain) {
-          chainHtml = '<div style="margin-top:16px;"><b>🔗 证书信任链</b><div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">';
-          const icons = ['🔒', '🏢', '🏛️'];
-          const labels = ['端实体', '中间 CA', '根 CA'];
-          cr.chain.forEach((link, i) => {
-            const icon = link.level === 'end-entity' ? '🔒' : (link.level === 'intermediate' ? '🏢' : '🏛️');
-            const label = link.level === 'end-entity' ? '端实体' : (link.level === 'intermediate' ? '中间 CA' : '根 CA');
-            chainHtml += `<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;${i===0?'background:#eff6ff;':''}">
-              <span style="font-weight:600;">${icon} ${label}</span>
-              <div style="font-size:11px;color:var(--text-secondary);" class="mono">${escapeHtml(link.serial)}</div>
-              <div style="font-size:12px;">${escapeHtml(link.subject)}</div>
-              ${i > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">↑ 由上级签发</div>` : ''}
+          const reversed = [...cr.chain].reverse(); // 根CA在前
+          chainHtml = '<div style="margin-top:16px;"><b>🔗 证书信任链</b><div class="tree">';
+          reversed.forEach((link, i) => {
+            const icon = link.level === 'root' ? '🏛️' : (link.level === 'intermediate' ? '🏢' : '🔒');
+            const label = link.level === 'root' ? '根 CA' : (link.level === 'intermediate' ? '中间 CA' : '端实体');
+            const cls = link.level === 'root' ? 'root' : (link.level === 'intermediate' ? 'intermediate' : 'leaf');
+            chainHtml += `<div class="tree-node ${cls}">
+              <div style="font-weight:600;">${icon} ${label}</div>
+              <div style="font-size:10px;color:var(--text-secondary);" class="mono">${escapeHtml(link.serial?.substring(0,16))}...</div>
+              <div style="font-size:11px;">${escapeHtml(link.subject?.substring(0,40))}</div>
             </div>`;
+            if (i < reversed.length - 1) {
+              chainHtml += '<div class="tree-connector"><span class="arrow">▼ 签发 ▼</span></div>';
+            }
           });
           chainHtml += '</div></div>';
         }
@@ -1078,9 +1255,203 @@ if (uploadArea) {
   });
 }
 
+// ── 暗色主题切换 ──
+function toggleDarkMode() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? '' : 'dark');
+  $('themeBtn').textContent = isDark ? '🌙 暗色' : '☀️ 亮色';
+  localStorage.setItem('pki-theme', isDark ? 'light' : 'dark');
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('pki-theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    $('themeBtn').textContent = '☀️ 亮色';
+  }
+}
+
+// ── 仪表盘 ──
+async function loadDashboard() {
+  try {
+    // Stats
+    const s = await api('/api/statistics');
+    const stats = s.statistics;
+    const root = await api('/api/ca/info');
+    $('dashStatsRow').innerHTML = `
+      <div class="stat-card"><div class="stat-num">${root.root_ca?'✅':'❌'}</div><div class="stat-label">根CA</div></div>
+      <div class="stat-card"><div class="stat-num">${stats.active_certificates}</div><div class="stat-label">在用证书</div></div>
+      <div class="stat-card warn"><div class="stat-num">${stats.revoked_certificates}</div><div class="stat-label">已注销</div></div>
+      <div class="stat-card"><div class="stat-num">${stats.active_signing}</div><div class="stat-label">签名证书</div></div>
+      <div class="stat-card"><div class="stat-num">${stats.active_encryption}</div><div class="stat-label">加密证书</div></div>
+      <div class="stat-card"><div class="stat-num">${stats.total}</div><div class="stat-label">总计</div></div>`;
+
+    // Trend chart (last 6 months from cert data)
+    const certs = await api('/api/certificates');
+    buildTrendChart(certs.certificates || []);
+
+    // Pie chart
+    buildPieChart(stats);
+
+    // Activity timeline
+    buildTimeline(certs.certificates || []);
+
+    // CA tree
+    buildCATree();
+
+    // Demo banner
+    $('demoBanner').style.display = (stats.total === 0 && !root.root_ca) ? '' : 'none';
+  } catch(e) { console.error(e); }
+}
+
+function buildTrendChart(certs) {
+  const months = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, label: `${d.getMonth()+1}月`, count: 0 });
+  }
+  certs.forEach(c => {
+    if (c.issue_date) {
+      const d = new Date(c.issue_date + ' UTC');
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const m = months.find(m => m.key === key);
+      if (m) m.count++;
+    }
+  });
+  const max = Math.max(1, ...months.map(m => m.count));
+  $('trendChart').innerHTML = months.map(m => {
+    const h = Math.max(4, (m.count / max) * 140);
+    return `<div class="bar-col"><div class="bar-val">${m.count}</div><div class="bar-fill" style="height:${h}px;"></div><div class="bar-label">${m.label}</div></div>`;
+  }).join('');
+}
+
+function buildPieChart(stats) {
+  const signing = stats.active_signing || 0;
+  const encryption = stats.active_encryption || 0;
+  const revoked = stats.revoked_certificates || 0;
+  const total = signing + encryption + revoked || 1;
+  const sDeg = (signing / total) * 360;
+  const eDeg = (encryption / total) * 360;
+  $('typePie').style.background = `conic-gradient(#2563eb 0deg ${sDeg}deg, #f59e0b ${sDeg}deg ${sDeg+eDeg}deg, #dc2626 ${sDeg+eDeg}deg 360deg)`;
+  $('pieLegend').innerHTML = `
+    <span><span class="pie-dot" style="background:#2563eb;"></span> 签名 ${signing}</span>
+    <span><span class="pie-dot" style="background:#f59e0b;"></span> 加密 ${encryption}</span>
+    <span><span class="pie-dot" style="background:#dc2626;"></span> 已注销 ${revoked}</span>`;
+}
+
+function buildTimeline(certs) {
+  const sorted = [...certs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 12);
+  if (sorted.length === 0) {
+    $('activityTimeline').innerHTML = '<span style="color:var(--text-secondary);">暂无活动记录</span>';
+    return;
+  }
+  $('activityTimeline').innerHTML = sorted.map(c => {
+    const isRevoke = c.status === 'revoked';
+    const cls = isRevoke ? 'revoke' : 'issue';
+    const action = isRevoke ? `🗑️ 吊销: ${c.revoke_reason||'—'}` : `📜 ${c.type==='signing'?'签发签名证书':'签发加密证书'}`;
+    const subject = escapeHtml(c.subject_dn).substring(0, 50);
+    return `<div class="timeline-item ${cls}">
+      <div class="timeline-time">${fmtTs(isRevoke ? c.revoke_date : c.issue_date)}</div>
+      <div class="timeline-text">${action} — <span style="color:var(--text-secondary);">${subject}</span></div>
+      <div class="mono" style="font-size:10px;color:var(--text-secondary);">${c.serial?.substring(0,16)}...</div>
+    </div>`;
+  }).join('');
+}
+
+async function buildCATree() {
+  try {
+    const r = await api('/api/ca/list');
+    if (!r.cas || r.cas.length === 0) {
+      $('caTreeOverview').innerHTML = '<span style="color:var(--text-secondary);">暂无 CA</span>';
+      return;
+    }
+    let html = '<div class="tree">';
+    // Root CA first
+    const roots = r.cas.filter(c => c.level === 'root');
+    const intermediates = r.cas.filter(c => c.level === 'intermediate');
+    roots.forEach((ca, i) => {
+      html += `<div class="tree-node root">
+        <div style="font-weight:600;">🏛️ 根 CA</div>
+        <div style="font-size:10px;color:var(--text-secondary);" class="mono">${ca.serial?.substring(0,14)}...</div>
+        <div style="font-size:11px;">${escapeHtml(ca.subject?.substring(0,35))}</div>
+      </div>`;
+      if (intermediates.length > 0 && i === 0) {
+        html += '<div class="tree-connector"><span class="arrow">▼ 签发 ▼</span></div>';
+      }
+    });
+    intermediates.forEach((ca, i) => {
+      html += `<div class="tree-node intermediate">
+        <div style="font-weight:600;">🏢 中间 CA</div>
+        <div style="font-size:10px;color:var(--text-secondary);" class="mono">${ca.serial?.substring(0,14)}...</div>
+        <div style="font-size:11px;">${escapeHtml(ca.subject?.substring(0,35))}</div>
+      </div>`;
+    });
+    html += '</div>';
+    $('caTreeOverview').innerHTML = html;
+  } catch(e) { $('caTreeOverview').innerHTML = '<span style="color:var(--text-secondary);">加载失败</span>'; }
+}
+
+// ── 演示模式 ──
+async function generateDemoData() {
+  if (!confirm('将生成演示数据：1个根CA、1个中间CA、2组用户双证书（共10张证书）。是否继续？')) return;
+  toast('正在生成演示数据，请稍候...', 'info');
+  try {
+    // 1. Root CA
+    let r = await api('/api/ca/issue', {method:'POST', body:JSON.stringify({
+      cn:'Demo Root CA', ou:'演示实验室', o:'演示CA中心', email:'demo-ca@example.edu', st:'北京', l:'海淀', days:3650
+    })});
+    if (r.status !== 'ok') { toast('根CA签发失败: '+(r.detail||r.message), 'error'); return; }
+    const rootSn = r.data.serial;
+    toast('✅ 根CA已签发', 'success');
+
+    // 2. Intermediate CA
+    r = await api('/api/ca/issue-intermediate', {method:'POST', body:JSON.stringify({
+      parent_ca_serial:rootSn, cn:'Demo Intermediate CA', ou:'演示中间CA', o:'演示CA中心', email:'ica@example.edu', st:'北京', l:'海淀', days:1825, pathlen:0
+    })});
+    const icaSn = r.status === 'ok' ? r.data.serial : '';
+    if (icaSn) toast('✅ 中间CA已签发', 'success');
+
+    // 3. User certs via root CA
+    const users = [
+      {cn:'alice', ou:'计算机学院', o:'演示大学', email:'alice@example.edu'},
+      {cn:'bob', ou:'信息安全学院', o:'演示大学', email:'bob@example.edu'},
+    ];
+    for (const u of users) {
+      r = await api('/api/certificates/issue', {method:'POST', body:JSON.stringify({
+        ...u, st:'北京', l:'海淀', days:365,
+        ca_serial: icaSn || ''
+      })});
+      if (r.status === 'ok') toast(`✅ ${u.cn} 双证书已签发 (via ${icaSn?'中间CA':'根CA'})`, 'success');
+    }
+    toast('🎉 演示数据生成完毕！', 'success');
+    loadStatus(); loadDashboard();
+    if (document.querySelector('#panel-dashboard').classList.contains('active')) loadDashboard();
+  } catch(e) { toast('生成失败: '+e.message, 'error'); }
+}
+
+// ── 导航更新 ──
+const origNavHandler = document.querySelector('.nav')?.onclick;
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.panel === 'dashboard') setTimeout(loadDashboard, 200);
+  });
+});
+
 // ── 初始化 ──
+initTheme();
 loadStatus(); loadRootInfo(); loadCAList();
 setInterval(loadStatus, 30000);
+
+// 检查是否需要显示演示模式提示
+setTimeout(async () => {
+  try {
+    const s = await api('/api/statistics');
+    const r = await api('/api/ca/info');
+    $('demoBanner').style.display = (s.statistics.total === 0 && !r.root_ca) ? '' : 'none';
+  } catch(e) {}
+}, 1500);
 </script>
 </body>
 </html>
