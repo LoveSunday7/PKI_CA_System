@@ -628,6 +628,7 @@ async function loadActiveCerts() {
             <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button>
             <button class="btn btn-outline btn-sm" onclick="renewCert('${c.serial}')">续期</button>
             <button class="btn btn-outline btn-sm" onclick="rekeyCert('${c.serial}')">更新密钥</button>
+            <button class="btn btn-outline btn-sm" onclick="checkOCSP('${c.serial}')">OCSP</button>
           </td>
         </tr>`;
       }).join('');
@@ -921,6 +922,11 @@ async function viewCert(serial) {
             <button class="btn btn-primary btn-sm" onclick="closeModal();restoreCert('${c.serial}')">恢复证书</button>
           ` : ''}
           <button class="btn btn-outline btn-sm" onclick="downloadChain('${c.serial}')">下载证书链</button>
+          <button class="btn btn-outline btn-sm" onclick="checkOCSP('${c.serial}')">查询 OCSP 状态</button>
+        </div>
+        <div id="ocspSection" style="margin-top:12px; padding:10px; border:1px solid var(--border); border-radius:6px; display:none;">
+          <b>🔍 OCSP 在线证书状态</b>
+          <div id="ocspResult" style="margin-top:6px; font-size:13px;"></div>
         </div>
       `;
       $('certModal').classList.add('show');
@@ -1009,6 +1015,51 @@ async function downloadChain(serial) {
       toast(`证书链已下载 (${r.chain_length} 级)`, 'success');
     }
   } catch(e) { toast('下载失败', 'error'); }
+}
+
+// ── OCSP 在线证书状态协议 ──
+async function checkOCSP(serial) {
+  const modal = $('certModal');
+  if (!modal.classList.contains('show')) {
+    // 从表格直接调用，先打开弹窗
+    await viewCert(serial);
+    await new Promise(r => setTimeout(r, 300));
+  }
+  const section = document.getElementById('ocspSection');
+  const result = document.getElementById('ocspResult');
+  if (section) section.style.display = 'block';
+  if (result) result.innerHTML = '<span style="color:var(--text-secondary);">⏳ 正在查询 OCSP 状态...</span>';
+
+  try {
+    const r = await api(`/api/ocsp/status/${serial}`);
+    if (r.status === 'ok') {
+      const badges = {good: '<span style="color:#16a34a;font-weight:600;">✅ 正常 (Good)</span>',
+                      revoked: '<span style="color:#dc2626;font-weight:600;">❌ 已吊销 (Revoked)</span>',
+                      unknown: '<span style="color:#f59e0b;font-weight:600;">⚠️ 未知 (Unknown)</span>'};
+      const badge = badges[r.ocsp_status] || r.ocsp_status;
+      if (result) result.innerHTML = `${badge}<br><span style="color:var(--text-secondary);">${r.description}</span>`;
+
+      // 同时获取装订数据
+      const s = await api(`/api/ocsp/${serial}/stapling`);
+      if (s.status === 'ok' && s.stapling_data) {
+        if (result) result.innerHTML += `<br><br><b>📌 OCSP 装订数据 (Base64):</b><br>
+          <div style="background:#f8fafc;padding:8px;border-radius:4px;word-break:break-all;font-size:11px;max-height:60px;overflow-y:auto;" class="mono">${s.stapling_data.substring(0,200)}...</div>
+          <button class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="downloadOCSP('${serial}')">📥 下载 OCSP 响应 (DER)</button>`;
+      }
+    } else {
+      if (result) result.innerHTML = `<span style="color:#dc2626;">❌ ${r.detail || r.message || '查询失败'}</span>`;
+    }
+  } catch(e) {
+    if (result) result.innerHTML = `<span style="color:#dc2626;">查询异常: ${e.message}</span>`;
+  }
+}
+
+async function downloadOCSP(serial) {
+  const a = document.createElement('a');
+  a.href = `/api/ocsp/${serial}/download`;
+  a.download = `ocsp-${serial}.der`;
+  a.click();
+  toast('OCSP 响应下载中...', 'info');
 }
 
 // ── 拖拽上传支持 ──

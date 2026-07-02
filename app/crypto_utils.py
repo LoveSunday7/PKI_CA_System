@@ -946,3 +946,135 @@ def parse_dn(dn: str) -> dict:
             key, _, value = part.partition("=")
             result[key.strip()] = value.strip()
     return result
+
+
+# ── OCSP 在线证书状态协议 ──────────────────────────────────────────
+
+def generate_ocsp_response(cert_path: str, ca_cert_path: str, ca_key_path: str,
+                           index_path: str, output_path: str) -> tuple[bool, str, str]:
+    """
+    生成 OCSP 响应（DER 格式）。
+    使用 openssl ocsp 命令，基于 CA 索引签发 OCSP 响应。
+    返回 (是否成功, OCSP状态文本, 错误信息)。
+    成功时 output_path 保存 DER 格式的 OCSP 响应。
+    """
+    if not os.path.exists(cert_path):
+        return False, "", f"证书文件不存在: {cert_path}"
+    if not os.path.exists(ca_cert_path):
+        return False, "", f"CA 证书不存在: {ca_cert_path}"
+    if not os.path.exists(ca_key_path):
+        return False, "", f"CA 私钥不存在: {ca_key_path}"
+    if not os.path.exists(index_path):
+        return False, "", f"CA 索引文件不存在: {index_path}"
+
+    cmd = (
+        f'{OPENSSL_BIN} ocsp -index "{index_path}" '
+        f'-CA "{ca_cert_path}" -issuer "{ca_cert_path}" '
+        f'-rsigner "{ca_cert_path}" -rkey "{ca_key_path}" '
+        f'-cert "{cert_path}" '
+        f'-respout "{output_path}" -text '
+        f'-no-CAfile -no-CApath'
+    )
+
+    rc, out, err = _run(cmd)
+    if rc != 0:
+        return False, out + "\n" + err, f"OCSP 响应生成失败: {err or out}"
+
+    # 从输出中提取状态
+    status_text = out + "\n" + err
+    return True, status_text, ""
+
+
+def get_ocsp_status(cert_path: str, ca_cert_path: str, ca_key_path: str,
+                    index_path: str) -> tuple[bool, str, str]:
+    """
+    查询证书的 OCSP 状态（仅查询，不生成响应文件）。
+    返回 (是否成功, 状态文本, 错误信息)。
+    """
+    if not os.path.exists(cert_path):
+        return False, "", f"证书文件不存在: {cert_path}"
+    if not os.path.exists(ca_cert_path):
+        return False, "", f"CA 证书不存在: {ca_cert_path}"
+    if not os.path.exists(ca_key_path):
+        return False, "", f"CA 私钥不存在: {ca_key_path}"
+    if not os.path.exists(index_path):
+        return False, "", f"CA 索引文件不存在: {index_path}"
+
+    cmd = (
+        f'{OPENSSL_BIN} ocsp -index "{index_path}" '
+        f'-CA "{ca_cert_path}" -issuer "{ca_cert_path}" '
+        f'-rsigner "{ca_cert_path}" -rkey "{ca_key_path}" '
+        f'-cert "{cert_path}" -text '
+        f'-no-CAfile -no-CApath'
+    )
+
+    rc, out, err = _run(cmd)
+    if rc != 0:
+        return False, out + "\n" + err, f"OCSP 查询失败: {err or out}"
+
+    status_text = out + "\n" + err
+    return True, status_text, ""
+
+
+def ocsp_status_to_summary(status_text: str) -> dict:
+    """将 OCSP 状态文本解析为结构化摘要。"""
+    text = status_text.lower()
+    if "good" in text:
+        status = "good"
+        desc = "证书状态正常（未被吊销）"
+    elif "revoked" in text:
+        status = "revoked"
+        desc = "证书已被吊销"
+    elif "unknown" in text:
+        status = "unknown"
+        desc = "证书状态未知（不在 CA 索引中）"
+    else:
+        status = "error"
+        desc = "无法解析 OCSP 状态"
+
+    return {"status": status, "description": desc, "raw": status_text}
+
+
+def ocsp_response_to_base64(der_path: str) -> str:
+    """
+    将 DER 格式的 OCSP 响应转为 Base64（用于 OCSP 装订）。
+    返回 Base64 编码的字符串。
+    """
+    import base64
+    if not os.path.exists(der_path):
+        return ""
+    with open(der_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+
+def get_ocsp_stapling_response(cert_path: str) -> tuple[bool, str, str, str]:
+    """
+    为证书生成 OCSP 装订响应。
+    返回 (是否成功, Base64编码的OCSP响应, 状态文本, 错误信息)。
+    """
+    pki_dir = str(PKI_DIR)
+    ca_cert = os.path.join(pki_dir, "root.crt")
+    ca_key = os.path.join(pki_dir, "root-private.key")
+    index = os.path.join(pki_dir, "ca", "index.txt")
+    resp_der = os.path.join(pki_dir, "ocsp-temp.der")
+
+    if not os.path.exists(ca_cert):
+        return False, "", "", "根 CA 证书不存在"
+    if not os.path.exists(ca_key):
+        return False, "", "", "根 CA 私钥不存在"
+    if not os.path.exists(index):
+        return False, "", "", "CA 索引文件不存在"
+
+    ok, status_text, err = generate_ocsp_response(
+        cert_path=cert_path,
+        ca_cert_path=ca_cert,
+        ca_key_path=ca_key,
+        index_path=index,
+        output_path=resp_der,
+    )
+
+    if not ok:
+        return False, "", status_text, err
+
+    b64 = ocsp_response_to_base64(resp_der)
+    return True, b64, status_text, ""

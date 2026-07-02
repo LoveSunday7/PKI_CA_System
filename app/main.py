@@ -856,6 +856,157 @@ async def get_crl_info():
     }
 
 
+# ── OCSP 在线证书状态协议端点 ────────────────────────────────────
+
+@app.get("/api/ocsp/status/{serial}")
+async def get_ocsp_status(serial: str):
+    """查询证书的 OCSP 在线状态（比 CRL 更实时）。"""
+    try:
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        pki_dir = str(crypto_utils.PKI_DIR)
+        ca_cert = os.path.join(pki_dir, "root.crt")
+        ca_key = os.path.join(pki_dir, "root-private.key")
+        index_path = os.path.join(pki_dir, "ca", "index.txt")
+
+        cert_path = cert["cert_file_path"]
+        if not os.path.exists(cert_path):
+            raise HTTPException(status_code=400, detail=f"证书文件不存在: {cert_path}")
+
+        ok, status_text, err = crypto_utils.get_ocsp_status(cert_path, ca_cert, ca_key, index_path)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        summary = crypto_utils.ocsp_status_to_summary(status_text)
+
+        return {
+            "status": "ok",
+            "ocsp_status": summary["status"],
+            "description": summary["description"],
+            "detail": status_text,
+            "certificate": {
+                "serial": cert["serial_number"],
+                "subject": cert["subject_dn"],
+                "db_status": cert["status"],
+                "type": cert["cert_type"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ocsp/{serial}/generate")
+async def generate_ocsp_response(serial: str):
+    """为指定证书生成 OCSP 响应（DER 格式），支持下载。"""
+    try:
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        pki_dir = str(crypto_utils.PKI_DIR)
+        ca_cert = os.path.join(pki_dir, "root.crt")
+        ca_key = os.path.join(pki_dir, "root-private.key")
+        index_path = os.path.join(pki_dir, "ca", "index.txt")
+        output_der = os.path.join(pki_dir, f"ocsp-{serial}.der")
+
+        cert_path = cert["cert_file_path"]
+        if not os.path.exists(cert_path):
+            raise HTTPException(status_code=400, detail=f"证书文件不存在: {cert_path}")
+
+        ok, status_text, err = crypto_utils.generate_ocsp_response(
+            cert_path=cert_path,
+            ca_cert_path=ca_cert,
+            ca_key_path=ca_key,
+            index_path=index_path,
+            output_path=output_der,
+        )
+
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        summary = crypto_utils.ocsp_status_to_summary(status_text)
+
+        return {
+            "status": "ok",
+            "message": "OCSP 响应生成成功。",
+            "data": {
+                "ocsp_status": summary["status"],
+                "description": summary["description"],
+                "detail": status_text,
+                "der_file": output_der,
+                "download_url": f"/api/ocsp/{serial}/download",
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ocsp/{serial}/download")
+async def download_ocsp_response(serial: str):
+    """下载证书的 OCSP 响应（DER 格式）。"""
+    pki_dir = str(crypto_utils.PKI_DIR)
+    der_file = os.path.join(pki_dir, f"ocsp-{serial}.der")
+
+    if not os.path.exists(der_file):
+        # 自动生成
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        ca_cert = os.path.join(pki_dir, "root.crt")
+        ca_key = os.path.join(pki_dir, "root-private.key")
+        index_path = os.path.join(pki_dir, "ca", "index.txt")
+        cert_path = cert["cert_file_path"]
+
+        ok, status_text, err = crypto_utils.generate_ocsp_response(
+            cert_path=cert_path, ca_cert_path=ca_cert,
+            ca_key_path=ca_key, index_path=index_path, output_path=der_file,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+    return FileResponse(der_file, media_type="application/ocsp-response",
+                        filename=f"ocsp-{serial}.der")
+
+
+@app.get("/api/ocsp/{serial}/stapling")
+async def get_ocsp_stapling(serial: str):
+    """获取证书的 OCSP 装订数据（Base64 编码，可用于 TLS OCSP Stapling）。"""
+    try:
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        cert_path = cert["cert_file_path"]
+        if not os.path.exists(cert_path):
+            raise HTTPException(status_code=400, detail=f"证书文件不存在: {cert_path}")
+
+        ok, b64_data, status_text, err = crypto_utils.get_ocsp_stapling_response(cert_path)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        summary = crypto_utils.ocsp_status_to_summary(status_text)
+
+        return {
+            "status": "ok",
+            "ocsp_status": summary["status"],
+            "description": summary["description"],
+            "stapling_data": b64_data,
+            "usage": "在 TLS 握手中将此 Base64 数据作为 CertificateStatus 扩展发送",
+            "detail": status_text,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── 证书 PEM 下载端点 ────────────────────────────────────────────
 
 @app.get("/api/certificates/{serial}/pem")
