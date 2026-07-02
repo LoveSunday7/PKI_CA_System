@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PKI/CA 数字证书管理系统</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f0f2f5;
+  --surface: #fff;
+  --border: #e0e0e0;
+  --text: #1a1a2e;
+  --text-secondary: #666;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,.1);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.header {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+  color: #fff;
+  padding: 20px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
+.header h1 { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+.header .subtitle { font-size: 13px; opacity: .85; margin-top: 2px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.ok { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.status-dot.err { background: #f87171; box-shadow: 0 0 6px #f87171; }
+.header .status-bar { font-size: 13px; display: flex; align-items: center; gap: 16px; }
+
+/* ── Nav tabs ── */
+.nav { display: flex; gap: 0; background: var(--surface); border-bottom: 2px solid var(--border); padding: 0 32px; }
+.nav-btn {
+  padding: 14px 28px; border: none; background: none; font-size: 15px;
+  font-weight: 500; color: var(--text-secondary); cursor: pointer;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: all .2s; font-family: inherit;
+}
+.nav-btn:hover { color: var(--primary); background: #f8fafc; }
+.nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* ── Main content ── */
+.main { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+.card-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.card-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+
+/* ── Stats row ── */
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.stat-card {
+  background: var(--surface); border-radius: var(--radius); padding: 18px;
+  border: 1px solid var(--border); text-align: center;
+}
+.stat-num { font-size: 28px; font-weight: 700; color: var(--primary); }
+.stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.stat-card.warn .stat-num { color: var(--warning); }
+.stat-card.danger .stat-num { color: var(--danger); }
+
+/* ── Forms ── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.form-grid.col2 { grid-template-columns: 1fr 1fr; }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-group label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.form-group input, .form-group select, .form-group textarea {
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px; font-family: inherit; transition: border-color .2s;
+  background: #fafbfc;
+}
+.form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.form-group input:read-only { background: #f1f5f9; color: #64748b; }
+
+.form-actions { display: flex; gap: 10px; margin-top: 18px; }
+
+/* ── Buttons ── */
+.btn {
+  padding: 10px 22px; border: none; border-radius: 6px; font-size: 14px;
+  font-weight: 500; cursor: pointer; font-family: inherit;
+  transition: all .2s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: var(--shadow); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-outline { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
+.btn-outline:hover { background: #eff6ff; }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+/* ── Tables ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 10px 12px; background: #f8fafc; font-weight: 600;
+     color: var(--text-secondary); font-size: 12px; text-transform: uppercase;
+     letter-spacing: .5px; border-bottom: 2px solid var(--border); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+tr:hover td { background: #f8fafc; }
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 600;
+}
+.badge-active { background: #dcfce7; color: #166534; }
+.badge-revoked { background: #fef2f2; color: #991b1b; }
+.badge-signing { background: #dbeafe; color: #1e40af; }
+.badge-encryption { background: #fef3c7; color: #92400e; }
+.mono { font-family: "SF Mono", "Cascadia Code", "Consolas", monospace; font-size: 12px; }
+
+/* ── Output / Log ── */
+.output-box {
+  background: #1e293b; color: #e2e8f0; font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px; padding: 16px; border-radius: var(--radius); max-height: 280px;
+  overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+  line-height: 1.5; border: 1px solid #334155;
+}
+.output-box .ok { color: #4ade80; }
+.output-box .err { color: #f87171; }
+.output-box .info { color: #93c5fd; }
+
+/* ── Modal ── */
+.modal-overlay {
+  display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface); border-radius: var(--radius); padding: 28px;
+  max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+.modal h3 { font-size: 18px; margin-bottom: 12px; }
+.modal-close { float: right; background: none; border: none; font-size: 22px;
+               cursor: pointer; color: var(--text-secondary); line-height: 1; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 200;
+  padding: 12px 24px; border-radius: var(--radius); color: #fff;
+  font-size: 14px; font-weight: 500; box-shadow: var(--shadow-lg);
+  transform: translateX(120%); transition: transform .3s; max-width: 420px;
+}
+.toast.show { transform: translateX(0); }
+.toast.success { background: var(--success); }
+.toast.error { background: var(--danger); }
+.toast.info { background: var(--primary); }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .nav { padding: 0 12px; overflow-x: auto; }
+  .nav-btn { padding: 12px 16px; font-size: 13px; white-space: nowrap; }
+  .header { flex-direction: column; gap: 8px; text-align: center; }
+}
+
+.empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>🔐 PKI/CA 数字证书管理系统</h1>
+    <div class="subtitle">根证书签发 · 用户双证书签发 · 证书注销 · CRL管理</div>
+  </div>
+  <div class="status-bar">
+    <span><span class="status-dot ok" id="sysDot"></span> 系统: <span id="sysStatus">检测中...</span></span>
+    <span>OpenSSL: <span id="opensslVer">-</span></span>
+  </div>
+</div>
+
+<nav class="nav">
+  <button class="nav-btn active" data-panel="root">🏛️ 签发根证书</button>
+  <button class="nav-btn" data-panel="user">👤 签发用户证书</button>
+  <button class="nav-btn" data-panel="revoke">🗑️ 证书注销与CRL</button>
+</nav>
+
+<div class="main">
+
+  <!-- ══════ Stats Row ══════ -->
+  <div class="stats-row" id="statsRow"></div>
+
+  <!-- ══════ Panel 0: Root CA ══════ -->
+  <section class="panel active" id="panel-root">
+    <div class="card">
+      <div class="card-title">🏛️ 签发根证书</div>
+      <div class="card-desc">系统支持 ECDSA P-256 和 SM2（国密）算法。已有根证书时禁止重复签发。</div>
+      <div id="rootExistsAlert" style="display:none; background:#fef3c7; border:1px solid #f59e0b; padding:12px; border-radius:6px; margin-bottom:14px;">
+        ⚠️ 根证书已存在，当前无法重复签发。如需重新签发，请先撤销现有根证书。
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label>CN (通用名称)</label><input id="rCN" value="PKI Root CA"></div>
+        <div class="form-group"><label>OU (组织单位)</label><input id="rOU" value="PKI实验室"></div>
+        <div class="form-group"><label>O (组织)</label><input id="rO" value="实训CA中心"></div>
+        <div class="form-group"><label>Email</label><input id="rEmail" value="ca@example.edu"></div>
+        <div class="form-group"><label>省份 (ST)</label><input id="rST" value="山东"></div>
+        <div class="form-group"><label>城市 (L)</label><input id="rL" value="济南"></div>
+        <div class="form-group"><label>国家 (C)</label><input id="rC" value="CN"></div>
+        <div class="form-group"><label>算法</label>
+          <select id="rAlg"><option value="ECDSA-P256">ECDSA P-256 (SHA-256)</option><option value="SM2">SM2 (SM3, 国密)</option></select>
+        </div>
+        <div class="form-group"><label>有效期 (天)</label><input id="rDays" type="number" value="3650" min="1" max="36500"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="issueRoot()">🔏 签发根证书</button>
+        <button class="btn btn-outline" onclick="loadRootInfo()">📋 读取当前根证书</button>
+      </div>
+      <div class="output-box" id="rootOutput" style="margin-top:16px;">等待操作...</div>
+    </div>
+  </section>
+
+  <!-- ══════ Panel 1: User Certificates ══════ -->
+  <section class="panel" id="panel-user">
+    <div class="card">
+      <div class="card-title">👤 签发用户证书</div>
+      <div class="card-desc">为同一用户签发一组双证书：签名证书 (digitalSignature) 和加密证书 (keyEncipherment)。</div>
+      <div id="noRootAlert" style="display:none; background:#fef2f2; border:1px solid #dc2626; padding:12px; border-radius:6px; margin-bottom:14px;">
+        ❌ 尚未签发根证书，请先在「签发根证书」面板中创建根CA。
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label>CN * (通用名称)</label><input id="uCN" placeholder="student001"></div>
+        <div class="form-group"><label>OU (组织单位)</label><input id="uOU" placeholder="计算机学院"></div>
+        <div class="form-group"><label>O (组织)</label><input id="uO" placeholder="实训用户"></div>
+        <div class="form-group"><label>Email</label><input id="uEmail" placeholder="user@example.edu"></div>
+        <div class="form-group"><label>省份 (ST)</label><input id="uST" placeholder="山东"></div>
+        <div class="form-group"><label>城市 (L)</label><input id="uL" placeholder="济南"></div>
+        <div class="form-group"><label>国家 (C)</label><input id="uC" placeholder="CN"></div>
+        <div class="form-group"><label>算法</label>
+          <select id="uAlg"><option value="ECDSA-P256">ECDSA P-256</option><option value="SM2">SM2 (国密)</option></select>
+        </div>
+        <div class="form-group"><label>有效期 (天)</label><input id="uDays" type="number" value="365" min="1" max="36500"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="issueUser()">📜 签发用户证书</button>
+        <button class="btn btn-outline" onclick="loadActiveCerts()">🔄 刷新在用证书</button>
+      </div>
+      <div class="output-box" id="userOutput" style="margin-top:16px;">等待操作...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 在用证书列表</div>
+      <div class="table-wrap">
+        <table id="activeCertsTable">
+          <thead><tr><th>序列号</th><th>组ID</th><th>主体</th><th>类型</th><th>算法</th><th>签发时间</th><th>过期时间</th><th>操作</th></tr></thead>
+          <tbody><tr><td colspan="8" class="empty-state">点击「刷新在用证书」加载数据</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════ Panel 2: Revocation & CRL ══════ -->
+  <section class="panel" id="panel-revoke">
+    <div class="card">
+      <div class="card-title">🗑️ 证书注销</div>
+      <div class="card-desc">选择任意一张在用证书进行注销，系统会将同组的签名证书和加密证书一起移入注销列表。</div>
+      <div class="form-grid col2">
+        <div class="form-group">
+          <label>选择在用证书</label>
+          <select id="revokeCertSelect"><option value="">-- 请先刷新在用证书 --</option></select>
+        </div>
+        <div class="form-group">
+          <label>撤销原因</label>
+          <select id="revokeReason">
+            <option value="unspecified">unspecified - 未指定</option>
+            <option value="keyCompromise">keyCompromise - 密钥泄露</option>
+            <option value="cACompromise">cACompromise - CA泄露</option>
+            <option value="affiliationChanged">affiliationChanged - 隶属变更</option>
+            <option value="superseded">superseded - 已被取代</option>
+            <option value="cessationOfOperation">cessationOfOperation - 停止使用</option>
+            <option value="certificateHold">certificateHold - 证书暂扣</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-outline btn-sm" onclick="loadActiveCertsForRevoke()">🔄 读取在用证书</button>
+        <button class="btn btn-danger" onclick="revokeCert()">❌ 注销证书</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📛 CRL 证书吊销列表</div>
+      <div class="card-desc">生成新的证书吊销列表 (CRL)。CRL 将包含所有被吊销证书的序列号。</div>
+      <div class="form-grid col2">
+        <div class="form-group"><label>CRL 更新周期 (天)</label><input id="crlDays" type="number" value="7" min="1" max="365"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="issueCRL()">📝 自动签发 CRL</button>
+        <button class="btn btn-outline" onclick="loadRevokedCerts()">📋 查看已注销证书</button>
+      </div>
+      <div class="output-box" id="crlOutput" style="margin-top:16px;">等待操作...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 已注销证书列表</div>
+      <div class="table-wrap">
+        <table id="revokedCertsTable">
+          <thead><tr><th>序列号</th><th>主体</th><th>类型</th><th>撤销时间</th><th>撤销原因</th><th>操作</th></tr></thead>
+          <tbody><tr><td colspan="6" class="empty-state">点击「查看已注销证书」加载数据</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ══════ Modal: Certificate Detail ══════ -->
+<div class="modal-overlay" id="certModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>📜 证书详情</h3>
+    <div id="certDetail"></div>
+  </div>
+</div>
+
+<!-- ══════ Toast ══════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Utilities ──
+const $ = id => document.getElementById(id);
+const api = (url, opts) => fetch(url, {headers:{'Content-Type':'application/json'},...opts}).then(r => r.json());
+const fmtTs = ts => ts ? ts.replace('T',' ').substring(0,19) : '-';
+
+let toastTimer;
+function toast(msg, type='info') {
+  const el = $('toast');
+  el.textContent = msg; el.className = 'toast ' + type + ' show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function output(id, text, cls='') {
+  const el = $(id);
+  if (typeof text === 'object') text = JSON.stringify(text, null, 2);
+  el.innerHTML = text ? `<span class="${cls}">${escapeHtml(text)}</span>` : '';
+}
+function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Navigation ──
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(`panel-${btn.dataset.panel}`).classList.add('active');
+    if (btn.dataset.panel === 'revoke') loadActiveCertsForRevoke();
+    if (btn.dataset.panel === 'user') loadActiveCerts();
+  });
+});
+
+// ── System Status ──
+async function loadStatus() {
+  try {
+    const r = await api('/api/status');
+    $('sysDot').className = 'status-dot ' + (r.status==='ok'?'ok':'err');
+    $('sysStatus').textContent = r.status === 'ok' ? '运行中' : '异常';
+    $('opensslVer').textContent = r.openssl ? r.openssl.split('\n')[0] : '-';
+    if (r.statistics) {
+      const s = r.statistics;
+      $('statsRow').innerHTML = `
+        <div class="stat-card"><div class="stat-num">${r.root_ca&&r.root_ca.exists?'✅':'❌'}</div><div class="stat-label">根CA</div></div>
+        <div class="stat-card"><div class="stat-num">${s.active_certificates}</div><div class="stat-label">在用证书</div></div>
+        <div class="stat-card warn"><div class="stat-num">${s.revoked_certificates}</div><div class="stat-label">已注销</div></div>
+        <div class="stat-card"><div class="stat-num">${s.active_signing}</div><div class="stat-label">签名证书</div></div>
+        <div class="stat-card"><div class="stat-num">${s.active_encryption}</div><div class="stat-label">加密证书</div></div>
+        <div class="stat-card"><div class="stat-num">${s.total}</div><div class="stat-label">总计</div></div>
+      `;
+      $('rootExistsAlert').style.display = (r.root_ca && r.root_ca.exists) ? '' : 'none';
+      $('noRootAlert').style.display = (r.root_ca && r.root_ca.exists) ? 'none' : '';
+      // Disable issue root button if root exists
+      const rootBtns = document.querySelectorAll('#panel-root .btn-primary');
+      rootBtns.forEach(b => { if (r.root_ca && r.root_ca.exists) b.disabled = true; else b.disabled = false; });
+    }
+  } catch(e) { $('sysStatus').textContent = '连接失败'; }
+}
+
+// ── Root CA ──
+async function issueRoot() {
+  output('rootOutput', '正在签发根证书，请稍候...', 'info');
+  try {
+    const r = await api('/api/ca/issue', {method:'POST', body:JSON.stringify({
+      cn: $('rCN').value, ou: $('rOU').value, o: $('rO').value, email: $('rEmail').value,
+      st: $('rST').value, l: $('rL').value, c: $('rC').value,
+      days: parseInt($('rDays').value), algorithm: $('rAlg').value
+    })});
+    if (r.status === 'ok') {
+      output('rootOutput', '✅ 根证书签发成功!\n\n' +
+        `序列号: ${r.data.serial}\n主题: ${r.data.subject}\n算法: ${r.data.algorithm}\n` +
+        `签发时间: ${r.data.issue_date}\n过期时间: ${r.data.expiry_date}`, 'ok');
+      toast('根证书签发成功!', 'success');
+    } else {
+      output('rootOutput', '❌ 签发失败: ' + (r.detail || r.message), 'err');
+      toast('签发失败', 'error');
+    }
+  } catch(e) { output('rootOutput', '请求异常: ' + e.message, 'err'); }
+  loadStatus();
+}
+
+async function loadRootInfo() {
+  output('rootOutput', '正在读取...', 'info');
+  try {
+    const r = await api('/api/ca/info');
+    if (r.root_ca) {
+      const c = r.root_ca;
+      output('rootOutput', `📋 当前根证书:\n\n序列号: ${c.serial}\n主题: ${c.subject}\n算法: ${c.algorithm}\n签发时间: ${c.issue_date}\n过期时间: ${c.expiry_date}\n状态: ${c.status}`, 'ok');
+    } else {
+      output('rootOutput', '⚠️ 尚未签发根证书，请填写表单后点击「签发根证书」。', 'info');
+    }
+  } catch(e) { output('rootOutput', '请求异常: ' + e.message, 'err'); }
+}
+
+// ── User Certificates ──
+async function issueUser() {
+  const cn = $('uCN').value.trim();
+  if (!cn) { toast('CN (通用名称) 为必填项', 'error'); return; }
+  output('userOutput', '正在签发用户证书，请稍候...', 'info');
+  try {
+    const r = await api('/api/certificates/issue', {method:'POST', body:JSON.stringify({
+      cn, ou: $('uOU').value, o: $('uO').value, email: $('uEmail').value,
+      st: $('uST').value, l: $('uL').value, c: $('uC').value,
+      days: parseInt($('uDays').value), algorithm: $('uAlg').value
+    })});
+    if (r.status === 'ok') {
+      let txt = '✅ 用户双证书签发成功!\n\n组ID: ' + r.data.group_id + '\n\n';
+      r.data.certificates.forEach(c => {
+        txt += `[${c.type === 'signing' ? '🔏 签名证书' : '🔒 加密证书'}]\n  序列号: ${c.serial}\n  签发: ${c.issue_date}\n  过期: ${c.expiry_date}\n\n`;
+      });
+      output('userOutput', txt, 'ok');
+      toast('用户证书签发成功!', 'success');
+      loadActiveCerts();
+    } else {
+      output('userOutput', '❌ 签发失败: ' + (r.detail || r.message), 'err');
+      toast('签发失败: ' + (r.detail || r.message), 'error');
+    }
+  } catch(e) { output('userOutput', '请求异常: ' + e.message, 'err'); }
+  loadStatus();
+}
+
+async function loadActiveCerts() {
+  try {
+    const r = await api('/api/certificates?status=active');
+    const tbody = document.querySelector('#activeCertsTable tbody');
+    if (!r.certificates || r.certificates.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无在用证书</td></tr>';
+    } else {
+      tbody.innerHTML = r.certificates.map(c => `
+        <tr>
+          <td class="mono">${c.serial}</td>
+          <td class="mono">${c.group_id?.substring(0,16)||'-'}...</td>
+          <td>${escapeHtml(c.subject_dn)}</td>
+          <td><span class="badge ${c.type==='signing'?'badge-signing':'badge-encryption'}">${c.type==='signing'?'签名':'加密'}</span></td>
+          <td>${c.algorithm}</td>
+          <td>${fmtTs(c.issue_date)}</td>
+          <td>${fmtTs(c.expiry_date)}</td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="viewCert('${c.serial}')">详情</button>
+            <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button>
+            <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','key')">密钥</button>
+          </td>
+        </tr>`).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ── Revocation ──
+async function loadActiveCertsForRevoke() {
+  try {
+    const r = await api('/api/certificates?status=active');
+    const sel = $('revokeCertSelect');
+    sel.innerHTML = r.certificates && r.certificates.length > 0
+      ? r.certificates.map(c => `<option value="${c.serial}">${c.serial} | ${c.type==='signing'?'签名':'加密'} | ${escapeHtml(c.subject_dn)}</option>`).join('')
+      : '<option value="">-- 暂无在用证书 --</option>';
+    toast('在用证书列表已刷新', 'info');
+  } catch(e) { toast('加载失败', 'error'); }
+}
+
+async function revokeCert() {
+  const serial = $('revokeCertSelect').value;
+  if (!serial) { toast('请先选择要注销的证书', 'error'); return; }
+  if (!confirm(`确认注销证书 ${serial} 及其同组证书吗？此操作不可撤销。`)) return;
+  try {
+    const r = await api('/api/certificates/revoke', {method:'POST', body:JSON.stringify({
+      serial, reason: $('revokeReason').value
+    })});
+    if (r.status === 'ok') {
+      output('crlOutput', `✅ ${r.message}\n\n组ID: ${r.data.group_id}\n原因: ${r.data.reason}`, 'ok');
+      toast('证书注销成功!', 'success');
+      loadActiveCertsForRevoke();
+      loadActiveCerts();
+      loadRevokedCerts();
+    } else {
+      output('crlOutput', '❌ 注销失败: ' + (r.detail || r.message), 'err');
+      toast('注销失败', 'error');
+    }
+  } catch(e) { output('crlOutput', '请求异常: ' + e.message, 'err'); }
+  loadStatus();
+}
+
+// ── CRL ──
+async function issueCRL() {
+  output('crlOutput', '正在生成 CRL...', 'info');
+  try {
+    const r = await api('/api/crl/issue', {method:'POST', body:JSON.stringify({
+      days: parseInt($('crlDays').value)
+    })});
+    if (r.status === 'ok') {
+      output('crlOutput', `✅ CRL 签发成功!\n\n已吊销证书数: ${r.data.revoked_count}\n有效期: ${r.data.days} 天\n\n${r.data.crl_text||''}`, 'ok');
+      toast('CRL 签发成功!', 'success');
+    } else {
+      output('crlOutput', '❌ CRL 签发失败: ' + (r.detail || r.message), 'err');
+      toast('CRL签发失败', 'error');
+    }
+  } catch(e) { output('crlOutput', '请求异常: ' + e.message, 'err'); }
+}
+
+async function loadRevokedCerts() {
+  try {
+    const r = await api('/api/certificates?status=revoked');
+    const tbody = document.querySelector('#revokedCertsTable tbody');
+    if (!r.certificates || r.certificates.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无已注销证书</td></tr>';
+    } else {
+      tbody.innerHTML = r.certificates.map(c => `
+        <tr>
+          <td class="mono">${c.serial}</td>
+          <td>${escapeHtml(c.subject_dn)}</td>
+          <td><span class="badge ${c.type==='signing'?'badge-signing':'badge-encryption'}">${c.type==='signing'?'签名':'加密'}</span></td>
+          <td>${fmtTs(c.revoke_date)}</td>
+          <td><span class="badge badge-revoked">${c.revoke_reason||'-'}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button></td>
+        </tr>`).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ── Modal ──
+async function viewCert(serial) {
+  try {
+    const r = await api(`/api/certificates/${serial}`);
+    if (r.certificate) {
+      const c = r.certificate;
+      $('certDetail').innerHTML = `
+        <table>
+          <tr><td><b>序列号</b></td><td class="mono">${c.serial}</td></tr>
+          <tr><td><b>组ID</b></td><td class="mono">${c.group_id}</td></tr>
+          <tr><td><b>主体</b></td><td>${escapeHtml(c.subject_dn)}</td></tr>
+          <tr><td><b>签发者</b></td><td>${escapeHtml(c.issuer_dn)}</td></tr>
+          <tr><td><b>类型</b></td><td><span class="badge ${c.type==='signing'?'badge-signing':'badge-encryption'}">${c.type==='signing'?'签名证书':'加密证书'}</span></td></tr>
+          <tr><td><b>算法</b></td><td>${c.algorithm}</td></tr>
+          <tr><td><b>状态</b></td><td><span class="badge ${c.status==='active'?'badge-active':'badge-revoked'}">${c.status==='active'?'在用':'已注销'}</span></td></tr>
+          <tr><td><b>签发时间</b></td><td>${fmtTs(c.issue_date)}</td></tr>
+          <tr><td><b>过期时间</b></td><td>${fmtTs(c.expiry_date)}</td></tr>
+          ${c.revoke_date ? `<tr><td><b>撤销时间</b></td><td>${fmtTs(c.revoke_date)}</td></tr>` : ''}
+          ${c.revoke_reason ? `<tr><td><b>撤销原因</b></td><td>${c.revoke_reason}</td></tr>` : ''}
+        </table>
+        <div class="form-actions">
+          <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">下载证书 PEM</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','key')">下载密钥 PEM</button>
+        </div>
+      `;
+      $('certModal').classList.add('show');
+    }
+  } catch(e) { toast('加载详情失败', 'error'); }
+}
+
+function closeModal() { $('certModal').classList.remove('show'); }
+$('certModal').addEventListener('click', e => { if (e.target === $('certModal')) closeModal(); });
+
+function downloadPem(serial, type) {
+  api(`/api/certificates/${serial}/pem`).then(r => {
+    if (r.status === 'ok') {
+      const content = type === 'cert' ? r.cert_pem : r.key_pem;
+      const filename = type === 'cert' ? r.cert_filename : r.key_filename;
+      const blob = new Blob([content], {type:'application/x-pem-file'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+      toast(`已下载: ${filename}`, 'success');
+    }
+  });
+}
+
+// ── Init ──
+loadStatus(); loadRootInfo();
+setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>
