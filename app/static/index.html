@@ -16,7 +16,7 @@
   --radius: .5rem;
   --shadow: 0 .0625rem .1875rem rgba(0,0,0,.08), 0 .0625rem .125rem rgba(0,0,0,.06);
   --shadow-lg: 0 .25rem .75rem rgba(0,0,0,.1);
-  --sidebar-w: clamp(14rem, 18vw, 18rem);
+  --sidebar-w: clamp(12rem, 15vw, 15rem);
   --header-h: 4.5rem;
   font-size: clamp(14px, 1vw + 8px, 17px);
 }
@@ -69,7 +69,7 @@ body {
 .header .status-bar { font-size: .75rem; display: flex; align-items: center; gap: .875rem; }
 
 /* ── 主体区域 ── */
-.body-wrap { display: flex; flex: 1; overflow: hidden; }
+.body-wrap { display: flex; flex: 1; }
 
 /* ── 侧边栏 ── */
 .sidebar {
@@ -102,8 +102,8 @@ body {
 /* ── 主内容区 ── */
 .main {
   flex: 1; margin-left: var(--sidebar-w);
-  padding: clamp(.75rem, 2.5vw, 1.75rem) clamp(.75rem, 3vw, 2rem);
-  overflow-y: auto; background: var(--bg);
+  padding: clamp(.5rem, 2vw, 1.5rem) clamp(.5rem, 2vw, 1.5rem);
+  overflow-y: auto; overflow-x: auto; background: var(--bg);
 }
 .panel { display: none; }
 .panel.active { display: block; animation: fadeIn .25s ease; }
@@ -350,7 +350,7 @@ tr:hover td { background: #f8fafc; }
 
 /* ── 响应式 ── */
 @media (max-width: 48rem) {
-  :root { --sidebar-w: 4rem; font-size: clamp(13px, 1vw + 7px, 15px); }
+  :root { --sidebar-w: 3.5rem; font-size: clamp(13px, 1vw + 7px, 15px); }
   .sidebar-label { display: none; }
   .nav-btn { padding: .75rem .5rem; justify-content: center; border-radius: 0; margin: 0; width: 100%; }
   .nav-btn span:not(.nav-icon) { display: none; }
