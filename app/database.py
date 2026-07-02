@@ -1,5 +1,5 @@
 """
-SQLite database models and operations for PKI/CA system.
+PKI/CA 系统 SQLite 数据库模型与操作。
 """
 
 import sqlite3
@@ -12,7 +12,7 @@ DB_PATH = BASE_DIR / "data" / "pki_ca.db"
 
 
 def get_connection() -> sqlite3.Connection:
-    """Get a database connection with row factory."""
+    """获取数据库连接（配置行工厂模式）。"""
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -21,7 +21,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Initialize database tables."""
+    """初始化数据库表结构。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -78,14 +78,14 @@ def init_db() -> None:
     conn.close()
 
 
-# ── Root CA operations ──────────────────────────────────────────────
+# ── 根 CA 操作 ──────────────────────────────────────────────────────
 
 def save_root_ca(info: dict) -> int:
-    """Save root CA information. Returns inserted id."""
+    """保存根 CA 信息，返回插入记录的主键 ID。"""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Deactivate any existing active root CAs
+    # 将当前活跃的根 CA 标记为已取代
     cursor.execute("UPDATE root_ca SET status = 'superseded' WHERE status = 'active'")
 
     cursor.execute("""
@@ -109,7 +109,7 @@ def save_root_ca(info: dict) -> int:
 
 
 def get_active_root_ca() -> dict | None:
-    """Get the active root CA."""
+    """获取当前活跃的根 CA。"""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM root_ca WHERE status = 'active' ORDER BY created_at DESC LIMIT 1")
@@ -119,7 +119,7 @@ def get_active_root_ca() -> dict | None:
 
 
 def get_root_ca_history() -> list[dict]:
-    """Get all root CAs ordered by creation date."""
+    """获取所有根 CA 历史记录，按创建时间倒序排列。"""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM root_ca ORDER BY created_at DESC")
@@ -128,10 +128,10 @@ def get_root_ca_history() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ── Certificate operations ──────────────────────────────────────────
+# ── 证书操作 ────────────────────────────────────────────────────────
 
 def save_certificate(info: dict, cert_type: str, group_id: str, issuer_dn: str) -> int:
-    """Save a user certificate. Returns inserted id."""
+    """保存用户证书，返回插入记录的主键 ID。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -162,7 +162,7 @@ def save_certificate(info: dict, cert_type: str, group_id: str, issuer_dn: str) 
 
 
 def get_certificates(status: str = None, cert_type: str = None) -> list[dict]:
-    """Get certificates filtered by status and/or type."""
+    """按状态和/或类型筛选证书列表。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -184,7 +184,7 @@ def get_certificates(status: str = None, cert_type: str = None) -> list[dict]:
 
 
 def get_certificate_by_serial(serial: str) -> dict | None:
-    """Get a certificate by its serial number."""
+    """按序列号查询证书。"""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM certificates WHERE serial_number = ?", (serial,))
@@ -194,7 +194,7 @@ def get_certificate_by_serial(serial: str) -> dict | None:
 
 
 def revoke_certificate_in_db(serial: str, reason: str = "unspecified") -> bool:
-    """Mark a certificate as revoked in the database."""
+    """在数据库中标记证书为已吊销状态。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -207,7 +207,7 @@ def revoke_certificate_in_db(serial: str, reason: str = "unspecified") -> bool:
     group_id = row["group_id"]
     revoke_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Revoke all certificates in the same group (dual cert: signing + encryption)
+    # 吊销同组所有证书（双证书：签名 + 加密证书一起吊销）
     cursor.execute("""
         UPDATE certificates
         SET status = 'revoked', revoke_date = ?, revoke_reason = ?
@@ -221,14 +221,14 @@ def revoke_certificate_in_db(serial: str, reason: str = "unspecified") -> bool:
 
 
 def get_revoked_certificates() -> list[dict]:
-    """Get all revoked certificates."""
+    """获取所有已吊销证书。"""
     return get_certificates(status="revoked")
 
 
-# ── CRL operations ──────────────────────────────────────────────────
+# ── CRL 操作 ────────────────────────────────────────────────────────
 
 def save_crl(info: dict) -> int:
-    """Save CRL information. Returns inserted id."""
+    """保存 CRL 信息，返回插入记录的主键 ID。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -252,7 +252,7 @@ def save_crl(info: dict) -> int:
 
 
 def get_latest_crl() -> dict | None:
-    """Get the most recent CRL."""
+    """获取最新的 CRL 记录。"""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM crls ORDER BY created_at DESC LIMIT 1")
@@ -262,7 +262,7 @@ def get_latest_crl() -> dict | None:
 
 
 def get_statistics() -> dict:
-    """Get certificate statistics."""
+    """获取证书统计信息。"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -292,5 +292,5 @@ def get_statistics() -> dict:
     }
 
 
-# Initialize database on import
+# 导入时自动初始化数据库
 init_db()

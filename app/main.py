@@ -1,6 +1,6 @@
 """
-PKI/CA System — FastAPI Backend
-Digital Certificate Lifecycle Management
+PKI/CA 系统 — FastAPI 后端服务
+数字证书生命周期管理
 """
 
 import uuid
@@ -21,57 +21,57 @@ app = FastAPI(
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# ── Request/Response Models ─────────────────────────────────────────
+# ── 请求/响应模型 ─────────────────────────────────────────────────
 
 class IssueRootRequest(BaseModel):
-    cn: str = Field(default="PKI Root CA", description="Common Name")
-    ou: str = Field(default="PKI实验室", description="Organizational Unit")
-    o: str = Field(default="实训CA中心", description="Organization")
-    email: str = Field(default="ca@example.edu", description="Email")
-    st: str = Field(default="山东", description="State/Province")
-    l: str = Field(default="济南", description="Locality/City")
-    c: str = Field(default="CN", description="Country")
-    days: int = Field(default=3650, ge=1, le=36500, description="Validity in days")
-    algorithm: str = Field(default="ECDSA-P256", description="Algorithm: ECDSA-P256 or SM2")
+    cn: str = Field(default="PKI Root CA", description="通用名称 (Common Name)")
+    ou: str = Field(default="PKI实验室", description="组织单位 (Organizational Unit)")
+    o: str = Field(default="实训CA中心", description="组织 (Organization)")
+    email: str = Field(default="ca@example.edu", description="电子邮箱")
+    st: str = Field(default="山东", description="省份 (State/Province)")
+    l: str = Field(default="济南", description="城市 (Locality/City)")
+    c: str = Field(default="CN", description="国家 (Country)")
+    days: int = Field(default=3650, ge=1, le=36500, description="有效天数")
+    algorithm: str = Field(default="ECDSA-P256", description="算法：ECDSA-P256 或 SM2")
 
 
 class IssueUserRequest(BaseModel):
-    cn: str = Field(..., description="Common Name (required)")
-    ou: str = Field(default="", description="Organizational Unit")
-    o: str = Field(default="", description="Organization")
-    email: str = Field(default="", description="Email")
-    st: str = Field(default="", description="State/Province")
-    l: str = Field(default="", description="Locality/City")
-    c: str = Field(default="", description="Country")
-    days: int = Field(default=365, ge=1, le=36500, description="Validity in days")
-    algorithm: str = Field(default="ECDSA-P256", description="Algorithm: ECDSA-P256 or SM2")
+    cn: str = Field(..., description="通用名称，必填 (Common Name)")
+    ou: str = Field(default="", description="组织单位 (Organizational Unit)")
+    o: str = Field(default="", description="组织 (Organization)")
+    email: str = Field(default="", description="电子邮箱")
+    st: str = Field(default="", description="省份 (State/Province)")
+    l: str = Field(default="", description="城市 (Locality/City)")
+    c: str = Field(default="", description="国家 (Country)")
+    days: int = Field(default=365, ge=1, le=36500, description="有效天数")
+    algorithm: str = Field(default="ECDSA-P256", description="算法：ECDSA-P256 或 SM2")
 
 
 class RevokeRequest(BaseModel):
-    serial: str = Field(..., description="Certificate serial number")
-    reason: str = Field(default="unspecified", description="Revocation reason")
+    serial: str = Field(..., description="证书序列号")
+    reason: str = Field(default="unspecified", description="吊销原因")
 
 
 class IssueCRLRequest(BaseModel):
-    days: int = Field(default=7, ge=1, le=365, description="CRL validity in days")
+    days: int = Field(default=7, ge=1, le=365, description="CRL 有效天数")
 
 
-# ── Static files & Frontend ─────────────────────────────────────────
+# ── 静态文件与前端页面 ───────────────────────────────────────────
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 @app.get("/")
 async def index():
-    """Serve the main web application."""
+    """提供主 Web 应用页面。"""
     return FileResponse(str(BASE_DIR / "static" / "index.html"))
 
 
-# ── System endpoints ────────────────────────────────────────────────
+# ── 系统状态端点 ─────────────────────────────────────────────────
 
 @app.get("/api/status")
 async def system_status():
-    """Get overall system status."""
+    """获取系统整体状态。"""
     try:
         stats = database.get_statistics()
         root = database.get_active_root_ca()
@@ -97,11 +97,11 @@ async def system_status():
         return {"status": "error", "message": str(e)}
 
 
-# ── Root CA endpoints ───────────────────────────────────────────────
+# ── 根 CA 端点 ───────────────────────────────────────────────────
 
 @app.post("/api/ca/issue")
 async def issue_root_ca(req: IssueRootRequest):
-    """Issue (self-sign) a root CA certificate."""
+    """签发（自签名）根 CA 证书。"""
     try:
         dn = crypto_utils.build_dn(
             cn=req.cn, ou=req.ou, o=req.o, email=req.email,
@@ -115,12 +115,12 @@ async def issue_root_ca(req: IssueRootRequest):
         if not ok:
             raise HTTPException(status_code=400, detail=err)
 
-        # Save to database
+        # 保存到数据库
         database.save_root_ca(info)
 
         return {
             "status": "ok",
-            "message": "Root CA certificate issued successfully.",
+            "message": "根 CA 证书签发成功。",
             "data": {
                 "serial": info["serial"],
                 "subject": info["subject"],
@@ -138,10 +138,10 @@ async def issue_root_ca(req: IssueRootRequest):
 
 @app.get("/api/ca/info")
 async def get_root_ca_info():
-    """Get current root CA information."""
+    """获取当前根 CA 证书信息。"""
     root = database.get_active_root_ca()
     if not root:
-        return {"status": "ok", "root_ca": None, "message": "No root CA found."}
+        return {"status": "ok", "root_ca": None, "message": "未找到根 CA 证书。"}
 
     return {
         "status": "ok",
@@ -157,16 +157,16 @@ async def get_root_ca_info():
     }
 
 
-# ── Certificate endpoints ───────────────────────────────────────────
+# ── 证书端点 ─────────────────────────────────────────────────────
 
 @app.post("/api/certificates/issue")
 async def issue_certificate(req: IssueUserRequest):
-    """Issue user certificates (signing + encryption dual certificate)."""
+    """签发用户证书（签名 + 加密双证书）。"""
     try:
-        # Check root CA exists
+        # 检查根 CA 是否存在
         root = database.get_active_root_ca()
         if not root:
-            raise HTTPException(status_code=400, detail="Root CA not found. Please issue a root CA first.")
+            raise HTTPException(status_code=400, detail="未找到根 CA 证书，请先签发根证书。")
 
         dn = crypto_utils.build_dn(
             cn=req.cn, ou=req.ou, o=req.o, email=req.email,
@@ -180,7 +180,7 @@ async def issue_certificate(req: IssueUserRequest):
         if not ok:
             raise HTTPException(status_code=400, detail=err)
 
-        # Generate group ID for dual cert pair
+        # 为双证书对生成组 ID
         group_id = f"{crypto_utils._now_compact()}{uuid.uuid4().hex[:4]}"
         issuer_dn = root["subject_dn"]
 
@@ -201,7 +201,7 @@ async def issue_certificate(req: IssueUserRequest):
 
         return {
             "status": "ok",
-            "message": "User certificates issued successfully.",
+            "message": "用户证书签发成功。",
             "data": {
                 "group_id": group_id,
                 "certificates": saved_certs,
@@ -217,10 +217,10 @@ async def issue_certificate(req: IssueUserRequest):
 
 @app.get("/api/certificates")
 async def list_certificates(
-    status: str = Query(default=None, description="Filter: active or revoked"),
-    cert_type: str = Query(default=None, description="Filter: signing or encryption"),
+    status: str = Query(default=None, description="按状态筛选：active 或 revoked"),
+    cert_type: str = Query(default=None, description="按类型筛选：signing 或 encryption"),
 ):
-    """List certificates with optional filters."""
+    """列出证书，支持按状态和类型筛选。"""
     certs = database.get_certificates(status=status, cert_type=cert_type)
     return {
         "status": "ok",
@@ -248,10 +248,10 @@ async def list_certificates(
 
 @app.get("/api/certificates/{serial}")
 async def get_certificate_detail(serial: str):
-    """Get detailed information for a specific certificate."""
+    """获取指定证书的详细信息。"""
     cert = database.get_certificate_by_serial(serial)
     if not cert:
-        raise HTTPException(status_code=404, detail=f"Certificate {serial} not found.")
+        raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
 
     return {
         "status": "ok",
@@ -275,11 +275,11 @@ async def get_certificate_detail(serial: str):
 
 
 @app.get("/api/certificates/{serial}/download")
-async def download_certificate(serial: str, file_type: str = Query(default="cert", description="cert or key")):
-    """Download certificate or key PEM file."""
+async def download_certificate(serial: str, file_type: str = Query(default="cert", description="下载类型：cert 或 key")):
+    """下载证书或密钥 PEM 文件。"""
     cert = database.get_certificate_by_serial(serial)
     if not cert:
-        raise HTTPException(status_code=404, detail=f"Certificate {serial} not found.")
+        raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
 
     if file_type == "cert":
         content = cert["cert_pem"]
@@ -288,25 +288,25 @@ async def download_certificate(serial: str, file_type: str = Query(default="cert
         content = cert["key_pem"]
         filename = f"{serial}.key.pem"
     else:
-        raise HTTPException(status_code=400, detail="file_type must be 'cert' or 'key'")
+        raise HTTPException(status_code=400, detail="file_type 参数必须为 'cert' 或 'key'")
 
     return JSONResponse({"status": "ok", "filename": filename, "content": content})
 
 
-# ── Revocation endpoints ────────────────────────────────────────────
+# ── 吊销端点 ─────────────────────────────────────────────────────
 
 @app.post("/api/certificates/revoke")
 async def revoke_certificate(req: RevokeRequest):
-    """Revoke a certificate (and its paired certificate in the same group)."""
+    """吊销证书（同时吊销同组的配对证书）。"""
     try:
         cert = database.get_certificate_by_serial(req.serial)
         if not cert:
-            raise HTTPException(status_code=404, detail=f"Certificate {req.serial} not found.")
+            raise HTTPException(status_code=404, detail=f"证书 {req.serial} 未找到。")
 
         if cert["status"] == "revoked":
-            raise HTTPException(status_code=400, detail="Certificate is already revoked.")
+            raise HTTPException(status_code=400, detail="该证书已被吊销。")
 
-        # Revoke via OpenSSL (gather group serials)
+        # 通过 OpenSSL 吊销（收集同组所有序列号）
         group_certs = database.get_certificates()
         group_serials = [
             c["serial_number"]
@@ -317,16 +317,15 @@ async def revoke_certificate(req: RevokeRequest):
         revoked_serials = []
         for serial in group_serials:
             ok, err, info = crypto_utils.revoke_certificate(serial, req.reason)
-            # OpenSSL revoke may fail if cert not in CA dir; we still update DB
-            # The CA command revokes from the CA index, which uses the .pem file
+            # OpenSSL 吊销可能因证书不在 CA 目录而失败，但仍然更新数据库
             revoked_serials.append({"serial": serial, "success": ok, "error": err if not ok else None})
 
-        # Update database
+        # 更新数据库
         database.revoke_certificate_in_db(req.serial, req.reason)
 
         return {
             "status": "ok",
-            "message": f"Certificate group revoked. {len(revoked_serials)} certificate(s) affected.",
+            "message": f"证书组已吊销，共 {len(revoked_serials)} 张证书受影响。",
             "data": {
                 "revoked_serials": revoked_serials,
                 "reason": req.reason,
@@ -339,11 +338,11 @@ async def revoke_certificate(req: RevokeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── CRL endpoints ───────────────────────────────────────────────────
+# ── CRL 端点 ─────────────────────────────────────────────────────
 
 @app.post("/api/crl/issue")
 async def issue_crl(req: IssueCRLRequest):
-    """Issue a Certificate Revocation List."""
+    """签发证书吊销列表 (CRL)。"""
     try:
         ok, err, info = crypto_utils.issue_crl(days=req.days)
         if not ok:
@@ -353,7 +352,7 @@ async def issue_crl(req: IssueCRLRequest):
 
         return {
             "status": "ok",
-            "message": "CRL issued successfully.",
+            "message": "CRL 签发成功。",
             "data": {
                 "revoked_count": info["revoked_count"],
                 "days": info["days"],
@@ -369,7 +368,7 @@ async def issue_crl(req: IssueCRLRequest):
 
 @app.get("/api/crl/info")
 async def get_crl_info():
-    """Get current CRL information."""
+    """获取当前 CRL 信息。"""
     db_crl = database.get_latest_crl()
     file_crl = crypto_utils.get_crl_info()
 
@@ -384,14 +383,14 @@ async def get_crl_info():
     }
 
 
-# ── Certificate detail (for certificate info page) ──────────────────
+# ── 证书 PEM 下载端点 ────────────────────────────────────────────
 
 @app.get("/api/certificates/{serial}/pem")
 async def get_certificate_pem(serial: str):
-    """Get certificate and key PEM data for download."""
+    """获取证书和密钥的 PEM 数据，用于下载。"""
     cert = database.get_certificate_by_serial(serial)
     if not cert:
-        raise HTTPException(status_code=404, detail=f"Certificate {serial} not found.")
+        raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
 
     return {
         "status": "ok",
@@ -403,11 +402,11 @@ async def get_certificate_pem(serial: str):
     }
 
 
-# ── Statistics ──────────────────────────────────────────────────────
+# ── 统计端点 ─────────────────────────────────────────────────────
 
 @app.get("/api/statistics")
 async def statistics():
-    """Get certificate statistics."""
+    """获取证书统计信息。"""
     return {
         "status": "ok",
         "statistics": database.get_statistics(),

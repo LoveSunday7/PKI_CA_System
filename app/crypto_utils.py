@@ -1,6 +1,6 @@
 """
-PKI/CA cryptographic operations using OpenSSL CLI.
-Supports SM2 (Chinese national standard) and ECDSA P-256.
+PKI/CA 加密操作模块，基于 OpenSSL 命令行工具。
+支持 SM2（国密标准）和 ECDSA P-256 算法。
 """
 
 import os
@@ -19,7 +19,7 @@ OPENSSL_BIN = os.environ.get("PKI_OPENSSL", "openssl")
 
 
 def _run(cmd: str) -> tuple[int, str, str]:
-    """Run a shell command and return (returncode, stdout, stderr)."""
+    """执行 shell 命令，返回 (返回码, 标准输出, 标准错误)。"""
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
         return r.returncode, r.stdout.strip(), r.stderr.strip()
@@ -28,64 +28,66 @@ def _run(cmd: str) -> tuple[int, str, str]:
 
 
 def _run_ok(cmd: str) -> bool:
-    """Run command and return True if successful."""
+    """执行命令，成功返回 True。"""
     rc, _, _ = _run(cmd)
     return rc == 0
 
 
 def _capture(cmd: str) -> str:
-    """Run command and return stdout, or empty string on failure."""
+    """执行命令并返回标准输出，失败时返回空字符串。"""
     rc, out, _ = _run(cmd)
     return out if rc == 0 else ""
 
 
 def _now_compact() -> str:
+    """返回紧凑格式的当前时间字符串（YYYYMMDDHHmmss）。"""
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
 
 def _now_iso() -> str:
+    """返回 ISO 格式的当前时间字符串。"""
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def generate_sm2_keypair(private_path: str) -> tuple[bool, str]:
-    """Generate SM2 key pair. Returns (success, error_message)."""
+    """生成 SM2 密钥对。返回 (是否成功, 错误信息)。"""
     cmd = f'{OPENSSL_BIN} ecparam -name SM2 -genkey -noout -out "{private_path}"'
     ok = _run_ok(cmd)
     if not ok:
-        return False, f"SM2 key generation failed: {cmd}"
+        return False, f"SM2 密钥生成失败: {cmd}"
     return True, ""
 
 
 def generate_ecdsa_keypair(private_path: str) -> tuple[bool, str]:
-    """Generate ECDSA P-256 key pair. Returns (success, error_message)."""
+    """生成 ECDSA P-256 密钥对。返回 (是否成功, 错误信息)。"""
     cmd = f'{OPENSSL_BIN} ecparam -name prime256v1 -genkey -noout -out "{private_path}"'
     ok = _run_ok(cmd)
     if not ok:
-        return False, f"ECDSA key generation failed: {cmd}"
+        return False, f"ECDSA 密钥生成失败: {cmd}"
     return True, ""
 
 
 def generate_keypair(private_path: str, algorithm: str = "SM2") -> tuple[bool, str]:
-    """Generate a key pair for the given algorithm."""
+    """根据指定算法生成密钥对。"""
     if algorithm == "SM2":
         return generate_sm2_keypair(private_path)
     elif algorithm == "ECDSA-P256":
         return generate_ecdsa_keypair(private_path)
     else:
-        return False, f"Unsupported algorithm: {algorithm}"
+        return False, f"不支持的算法: {algorithm}"
 
 
 def extract_public_key(private_path: str, public_path: str) -> tuple[bool, str]:
-    """Extract public key from private key."""
+    """从私钥中提取公钥。"""
     cmd = f'{OPENSSL_BIN} pkey -in "{private_path}" -pubout -out "{public_path}"'
     ok = _run_ok(cmd)
     if not ok:
-        return False, f"Public key extraction failed"
+        return False, f"公钥提取失败"
     return True, ""
 
 
 def get_cert_serial(cert_path: str) -> str:
-    """Get the serial number of a certificate (hex)."""
+    """获取证书的序列号（十六进制）。"""
     out = _capture(f'{OPENSSL_BIN} x509 -in "{cert_path}" -noout -serial')
     if out.startswith("serial="):
         return out[7:].strip().lower()
@@ -93,7 +95,7 @@ def get_cert_serial(cert_path: str) -> str:
 
 
 def get_cert_subject(cert_path: str) -> str:
-    """Get the subject DN of a certificate."""
+    """获取证书的主题 DN。"""
     out = _capture(
         f'{OPENSSL_BIN} x509 -in "{cert_path}" -noout -subject -nameopt RFC2253,utf8'
     )
@@ -103,7 +105,7 @@ def get_cert_subject(cert_path: str) -> str:
 
 
 def get_cert_dates(cert_path: str) -> tuple[str, str]:
-    """Get issue and expiry dates. Returns (not_before, not_after)."""
+    """获取证书的签发日期和过期日期。返回 (生效时间, 过期时间)。"""
     out = _capture(f'{OPENSSL_BIN} x509 -in "{cert_path}" -noout -dates')
     start = ""
     end = ""
@@ -116,12 +118,12 @@ def get_cert_dates(cert_path: str) -> tuple[str, str]:
 
 
 def get_cert_text(cert_path: str) -> str:
-    """Get full certificate details."""
+    """获取证书的完整详细信息。"""
     return _capture(f'{OPENSSL_BIN} x509 -in "{cert_path}" -noout -text')
 
 
 def write_req_conf(path: str, dn: str) -> None:
-    """Write an OpenSSL request config file from a DN string like /CN=.../OU=..."""
+    """根据 DN 字符串（如 /CN=.../OU=...）写入 OpenSSL 请求配置文件。"""
     parts = {}
     current_key = None
     for part in dn.split("/"):
@@ -137,7 +139,7 @@ def write_req_conf(path: str, dn: str) -> None:
 
 
 def write_ca_conf(pki_dir: str) -> None:
-    """Write OpenSSL CA configuration."""
+    """写入 OpenSSL CA 配置文件。"""
     ca_conf = os.path.join(pki_dir, "ca.cnf")
     ca_dir = os.path.join(pki_dir, "ca")
 
@@ -214,8 +216,8 @@ def issue_root_ca(
     algorithm: str = "ECDSA-P256",
 ) -> tuple[bool, str, dict]:
     """
-    Issue a self-signed root CA certificate.
-    Returns (success, error_message, info_dict).
+    签发自签名根 CA 证书。
+    返回 (是否成功, 错误信息, 信息字典)。
     """
     pki_dir = str(PKI_DIR)
     ca_conf = write_ca_conf(pki_dir)
@@ -225,19 +227,19 @@ def issue_root_ca(
     req_conf = os.path.join(pki_dir, "root-req.cnf")
 
     if os.path.exists(root_cert):
-        return False, "Root CA certificate already exists. Revoke it first or use a new PKI directory.", {}
+        return False, "根 CA 证书已存在，请先撤销或更换 PKI 目录。", {}
 
     write_req_conf(req_conf, dn)
 
-    # Generate key pair
+    # 生成密钥对
     ok, err = generate_keypair(root_key, algorithm)
     if not ok:
         return False, err, {}
 
-    # Determine hash algorithm
+    # 根据算法确定哈希算法
     md_flag = "-sm3" if algorithm == "SM2" else "-sha256"
 
-    # Self-sign the root certificate
+    # 自签名根证书
     cmd = (
         f'{OPENSSL_BIN} req -new -x509 {md_flag} '
         f'-key "{root_key}" -days {days} '
@@ -246,9 +248,9 @@ def issue_root_ca(
         f'-addext "keyUsage=critical,digitalSignature,nonRepudiation,keyCertSign,cRLSign"'
     )
     if not _run_ok(cmd):
-        return False, f"Root CA self-sign failed: {cmd}", {}
+        return False, f"根 CA 自签名失败: {cmd}", {}
 
-    # Re-write CA conf to reference the new root cert
+    # 重写 CA 配置以引用新的根证书
     write_ca_conf(pki_dir)
 
     serial = get_cert_serial(root_cert)
@@ -279,19 +281,19 @@ def issue_user_cert(
     algorithm: str = "ECDSA-P256",
 ) -> tuple[bool, str, dict]:
     """
-    Issue user certificates (signing + encryption dual cert).
-    Returns (success, error_message, info_dict).
+    签发用户证书（签名证书 + 加密证书双证书）。
+    返回 (是否成功, 错误信息, 信息字典)。
     """
     pki_dir = str(PKI_DIR)
     root_cert = os.path.join(pki_dir, "root.crt")
 
     if not os.path.exists(root_cert):
-        return False, "Root CA not found. Please issue root CA first.", {}
+        return False, "未找到根 CA 证书，请先签发根证书。", {}
 
     ts = _now_compact()
     results = {}
 
-    # Determine extensions and hash based on algorithm
+    # 根据算法确定扩展段和哈希算法
     if algorithm == "SM2":
         sign_ext = "sm_signing_cert"
         enc_ext = "sm_encryption_cert"
@@ -313,31 +315,31 @@ def issue_user_cert(
 
         write_req_conf(conf_file, dn)
 
-        # Generate key
+        # 生成密钥
         cmd = f'{OPENSSL_BIN} ecparam -name {curve} -genkey -noout -out "{key_file}"'
         if not _run_ok(cmd):
-            return False, f"{cert_type} key generation failed", {}
+            return False, f"{cert_type} 密钥生成失败", {}
 
-        # Create CSR
+        # 创建证书签名请求 (CSR)
         cmd = (
             f'{OPENSSL_BIN} req -new {md_flag} -key "{key_file}" '
             f'-config "{conf_file}" -out "{csr_file}"'
         )
         if not _run_ok(cmd):
-            return False, f"{cert_type} CSR generation failed", {}
+            return False, f"{cert_type} CSR 生成失败", {}
 
-        # Sign by CA
+        # 由 CA 签发
         cmd = (
             f'{OPENSSL_BIN} ca -batch -config "{ca_conf}" '
             f'-extensions {ext} -days {days} -in "{csr_file}" '
             f'-out "{cert_tmp}" -notext'
         )
         if not _run_ok(cmd):
-            return False, f"{cert_type} CA signing failed", {}
+            return False, f"{cert_type} CA 签发失败", {}
 
         serial = get_cert_serial(cert_tmp)
 
-        # Move to final location
+        # 移动到最终存储位置
         cert_final = os.path.join(pki_dir, "active-certificates", f"{serial}.cer.pem")
         key_final = os.path.join(pki_dir, "active-keys", f"{serial}.key.pem")
         os.makedirs(os.path.dirname(cert_final), exist_ok=True)
@@ -373,15 +375,15 @@ def issue_user_cert(
 
 def revoke_certificate(serial: str, reason: str = "unspecified") -> tuple[bool, str, dict]:
     """
-    Revoke a certificate by serial number.
-    Returns (success, error_message, info_dict).
+    按序列号吊销证书。
+    返回 (是否成功, 错误信息, 信息字典)。
     """
     pki_dir = str(PKI_DIR)
     ca_conf = os.path.join(pki_dir, "ca.cnf")
     root_cert = os.path.join(pki_dir, "root.crt")
 
     if not os.path.exists(root_cert):
-        return False, "Root CA not found.", {}
+        return False, "未找到根 CA 证书。", {}
 
     cmd = (
         f'{OPENSSL_BIN} ca -batch -config "{ca_conf}" '
@@ -393,8 +395,8 @@ def revoke_certificate(serial: str, reason: str = "unspecified") -> tuple[bool, 
     if rc != 0:
         combined = stdout + "\n" + stderr
         if "already revoked" in combined.lower():
-            return False, f"Certificate {serial} is already revoked.", {}
-        return False, f"Revocation failed: {stderr or stdout}", {}
+            return False, f"证书 {serial} 已被吊销。", {}
+        return False, f"吊销失败: {stderr or stdout}", {}
 
     revoke_time = _now_iso()
 
@@ -407,15 +409,15 @@ def revoke_certificate(serial: str, reason: str = "unspecified") -> tuple[bool, 
 
 def issue_crl(days: int = 7) -> tuple[bool, str, dict]:
     """
-    Issue a Certificate Revocation List.
-    Returns (success, error_message, info_dict).
+    签发证书吊销列表 (CRL)。
+    返回 (是否成功, 错误信息, 信息字典)。
     """
     pki_dir = str(PKI_DIR)
     ca_conf = os.path.join(pki_dir, "ca.cnf")
     root_cert = os.path.join(pki_dir, "root.crt")
 
     if not os.path.exists(root_cert):
-        return False, "Root CA not found.", {}
+        return False, "未找到根 CA 证书。", {}
 
     crl_file = os.path.join(pki_dir, "root.crl")
     cmd = (
@@ -424,9 +426,9 @@ def issue_crl(days: int = 7) -> tuple[bool, str, dict]:
     )
 
     if not _run_ok(cmd):
-        return False, "CRL generation failed.", {}
+        return False, "CRL 生成失败。", {}
 
-    # Archive CRL
+    # 归档 CRL 副本
     archive = os.path.join(pki_dir, f"root-{_now_compact()}.crl")
     data = ""
     if os.path.exists(crl_file):
@@ -435,7 +437,7 @@ def issue_crl(days: int = 7) -> tuple[bool, str, dict]:
         with open(archive, "wb") as dst:
             dst.write(data)
 
-    # Parse CRL info
+    # 解析 CRL 信息
     crl_text = _capture(f'{OPENSSL_BIN} crl -in "{crl_file}" -noout -text')
     revoked_count = crl_text.count("Serial Number:")
 
@@ -453,7 +455,7 @@ def issue_crl(days: int = 7) -> tuple[bool, str, dict]:
 
 
 def get_root_info() -> dict | None:
-    """Get information about the current root CA certificate."""
+    """获取当前根 CA 证书信息。"""
     pki_dir = str(PKI_DIR)
     root_cert = os.path.join(pki_dir, "root.crt")
 
@@ -478,7 +480,7 @@ def get_root_info() -> dict | None:
 
 
 def get_crl_info() -> dict | None:
-    """Get information about the current CRL."""
+    """获取当前 CRL 信息。"""
     pki_dir = str(PKI_DIR)
     crl_file = os.path.join(pki_dir, "root.crl")
 
@@ -498,7 +500,7 @@ def get_crl_info() -> dict | None:
 
 def build_dn(cn: str, ou: str = "", o: str = "", email: str = "",
              st: str = "", l: str = "", c: str = "") -> str:
-    """Build OpenSSL-style DN string."""
+    """构建 OpenSSL 格式的 DN 字符串。"""
     parts = []
     if cn:
         parts.append(f"/CN={cn}")
@@ -518,7 +520,7 @@ def build_dn(cn: str, ou: str = "", o: str = "", email: str = "",
 
 
 def parse_dn(dn: str) -> dict:
-    """Parse OpenSSL DN string into dict."""
+    """将 OpenSSL DN 字符串解析为字典。"""
     result = {}
     for part in dn.split("/"):
         if "=" in part:

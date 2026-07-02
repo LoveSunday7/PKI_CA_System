@@ -33,7 +33,7 @@ body {
   min-height: 100vh;
 }
 
-/* ── Header ── */
+/* ── 页面头部 ── */
 .header {
   background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
   color: #fff;
@@ -48,7 +48,7 @@ body {
 .status-dot.err { background: #f87171; box-shadow: 0 0 6px #f87171; }
 .header .status-bar { font-size: 13px; display: flex; align-items: center; gap: 16px; }
 
-/* ── Nav tabs ── */
+/* ── 导航标签 ── */
 .nav { display: flex; gap: 0; background: var(--surface); border-bottom: 2px solid var(--border); padding: 0 32px; }
 .nav-btn {
   padding: 14px 28px; border: none; background: none; font-size: 15px;
@@ -59,12 +59,12 @@ body {
 .nav-btn:hover { color: var(--primary); background: #f8fafc; }
 .nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 
-/* ── Main content ── */
+/* ── 主内容区 ── */
 .main { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
 .panel { display: none; }
 .panel.active { display: block; }
 
-/* ── Cards ── */
+/* ── 卡片容器 ── */
 .card {
   background: var(--surface); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px;
@@ -73,7 +73,7 @@ body {
 .card-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
 .card-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
 
-/* ── Stats row ── */
+/* ── 统计行 ── */
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
 .stat-card {
   background: var(--surface); border-radius: var(--radius); padding: 18px;
@@ -84,7 +84,7 @@ body {
 .stat-card.warn .stat-num { color: var(--warning); }
 .stat-card.danger .stat-num { color: var(--danger); }
 
-/* ── Forms ── */
+/* ── 表单 ── */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 .form-grid.col2 { grid-template-columns: 1fr 1fr; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
@@ -99,7 +99,7 @@ body {
 
 .form-actions { display: flex; gap: 10px; margin-top: 18px; }
 
-/* ── Buttons ── */
+/* ── 按钮 ── */
 .btn {
   padding: 10px 22px; border: none; border-radius: 6px; font-size: 14px;
   font-weight: 500; cursor: pointer; font-family: inherit;
@@ -114,7 +114,7 @@ body {
 .btn-sm { padding: 6px 14px; font-size: 12px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 
-/* ── Tables ── */
+/* ── 表格 ── */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; padding: 10px 12px; background: #f8fafc; font-weight: 600;
@@ -132,7 +132,7 @@ tr:hover td { background: #f8fafc; }
 .badge-encryption { background: #fef3c7; color: #92400e; }
 .mono { font-family: "SF Mono", "Cascadia Code", "Consolas", monospace; font-size: 12px; }
 
-/* ── Output / Log ── */
+/* ── 输出/日志 ── */
 .output-box {
   background: #1e293b; color: #e2e8f0; font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 12px; padding: 16px; border-radius: var(--radius); max-height: 280px;
@@ -143,7 +143,7 @@ tr:hover td { background: #f8fafc; }
 .output-box .err { color: #f87171; }
 .output-box .info { color: #93c5fd; }
 
-/* ── Modal ── */
+/* ── 弹窗 ── */
 .modal-overlay {
   display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center;
@@ -158,7 +158,7 @@ tr:hover td { background: #f8fafc; }
 .modal-close { float: right; background: none; border: none; font-size: 22px;
                cursor: pointer; color: var(--text-secondary); line-height: 1; }
 
-/* ── Toast ── */
+/* ── 提示消息 ── */
 .toast {
   position: fixed; top: 20px; right: 20px; z-index: 200;
   padding: 12px 24px; border-radius: var(--radius); color: #fff;
@@ -170,7 +170,7 @@ tr:hover td { background: #f8fafc; }
 .toast.error { background: var(--danger); }
 .toast.info { background: var(--primary); }
 
-/* ── Responsive ── */
+/* ── 响应式布局 ── */
 @media (max-width: 768px) {
   .form-grid { grid-template-columns: 1fr; }
   .stats-row { grid-template-columns: 1fr 1fr; }
@@ -204,10 +204,10 @@ tr:hover td { background: #f8fafc; }
 
 <div class="main">
 
-  <!-- ══════ Stats Row ══════ -->
+  <!-- ══════ 统计行 ══════ -->
   <div class="stats-row" id="statsRow"></div>
 
-  <!-- ══════ Panel 0: Root CA ══════ -->
+  <!-- ══════ 面板：签发根证书 ══════ -->
   <section class="panel active" id="panel-root">
     <div class="card">
       <div class="card-title">🏛️ 签发根证书</div>
@@ -236,7 +236,7 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- ══════ Panel 1: User Certificates ══════ -->
+  <!-- ══════ 面板：签发用户证书 ══════ -->
   <section class="panel" id="panel-user">
     <div class="card">
       <div class="card-title">👤 签发用户证书</div>
@@ -275,7 +275,7 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- ══════ Panel 2: Revocation & CRL ══════ -->
+  <!-- ══════ 面板：证书注销与CRL ══════ -->
   <section class="panel" id="panel-revoke">
     <div class="card">
       <div class="card-title">🗑️ 证书注销</div>
@@ -329,7 +329,7 @@ tr:hover td { background: #f8fafc; }
   </section>
 </div>
 
-<!-- ══════ Modal: Certificate Detail ══════ -->
+<!-- ══════ 证书详情弹窗 ══════ -->
 <div class="modal-overlay" id="certModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal()">&times;</button>
@@ -338,11 +338,11 @@ tr:hover td { background: #f8fafc; }
   </div>
 </div>
 
-<!-- ══════ Toast ══════ -->
+<!-- ══════ 提示消息 ══════ -->
 <div class="toast" id="toast"></div>
 
 <script>
-// ── Utilities ──
+// ── 工具函数 ──
 const $ = id => document.getElementById(id);
 const api = (url, opts) => fetch(url, {headers:{'Content-Type':'application/json'},...opts}).then(r => r.json());
 const fmtTs = ts => ts ? ts.replace('T',' ').substring(0,19) : '-';
@@ -362,7 +362,7 @@ function output(id, text, cls='') {
 }
 function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Navigation ──
+// ── 导航切换 ──
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -374,7 +374,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
   });
 });
 
-// ── System Status ──
+// ── 系统状态 ──
 async function loadStatus() {
   try {
     const r = await api('/api/status');
@@ -393,14 +393,14 @@ async function loadStatus() {
       `;
       $('rootExistsAlert').style.display = (r.root_ca && r.root_ca.exists) ? '' : 'none';
       $('noRootAlert').style.display = (r.root_ca && r.root_ca.exists) ? 'none' : '';
-      // Disable issue root button if root exists
+      // 根证书已存在时禁用签发按钮
       const rootBtns = document.querySelectorAll('#panel-root .btn-primary');
       rootBtns.forEach(b => { if (r.root_ca && r.root_ca.exists) b.disabled = true; else b.disabled = false; });
     }
   } catch(e) { $('sysStatus').textContent = '连接失败'; }
 }
 
-// ── Root CA ──
+// ── 根证书操作 ──
 async function issueRoot() {
   output('rootOutput', '正在签发根证书，请稍候...', 'info');
   try {
@@ -435,7 +435,7 @@ async function loadRootInfo() {
   } catch(e) { output('rootOutput', '请求异常: ' + e.message, 'err'); }
 }
 
-// ── User Certificates ──
+// ── 用户证书操作 ──
 async function issueUser() {
   const cn = $('uCN').value.trim();
   if (!cn) { toast('CN (通用名称) 为必填项', 'error'); return; }
@@ -488,7 +488,7 @@ async function loadActiveCerts() {
   } catch(e) { console.error(e); }
 }
 
-// ── Revocation ──
+// ── 吊销操作 ──
 async function loadActiveCertsForRevoke() {
   try {
     const r = await api('/api/certificates?status=active');
@@ -522,7 +522,7 @@ async function revokeCert() {
   loadStatus();
 }
 
-// ── CRL ──
+// ── CRL 操作 ──
 async function issueCRL() {
   output('crlOutput', '正在生成 CRL...', 'info');
   try {
@@ -559,7 +559,7 @@ async function loadRevokedCerts() {
   } catch(e) { console.error(e); }
 }
 
-// ── Modal ──
+// ── 详情弹窗 ──
 async function viewCert(serial) {
   try {
     const r = await api(`/api/certificates/${serial}`);
@@ -605,7 +605,7 @@ function downloadPem(serial, type) {
   });
 }
 
-// ── Init ──
+// ── 初始化 ──
 loadStatus(); loadRootInfo();
 setInterval(loadStatus, 30000);
 </script>
