@@ -290,19 +290,36 @@ tr:hover td { background: #f8fafc; }
 .tree-connector::before { content: '│'; }
 .tree-connector .arrow { font-size: .75rem; color: var(--text-secondary); }
 
-/* ── 仪表盘布局 ── */
-.dash-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: clamp(.5rem, 1.5vw, 1.25rem);
+/* ── 仪表盘 KPI 卡片 ── */
+.dash-kpi {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: clamp(.5rem, 1.2vw, .875rem); margin-bottom: clamp(.5rem, 1.2vw, .875rem);
 }
-.dash-card { height: 100%; display: flex; flex-direction: column; }
-.dash-card .card-title { flex-shrink: 0; }
-.dash-card > :not(.card-title) { flex: 1; }
-.dash-stats .stat-card {
-  padding: clamp(.75rem, 1.5vw, 1.25rem);
-  border-radius: .625rem; transition: transform .2s, box-shadow .2s;
+.kpi-card {
+  background: var(--surface); border-radius: .75rem; padding: clamp(.75rem, 1.5vw, 1.25rem);
+  border: .0625rem solid var(--border); display: flex; align-items: center; gap: .875rem;
+  transition: transform .2s, box-shadow .2s;
 }
-.dash-stats .stat-card:hover {
-  transform: translateY(-.125rem); box-shadow: var(--shadow-lg);
+.kpi-card:hover { transform: translateY(-.125rem); box-shadow: var(--shadow-lg); }
+.kpi-icon {
+  width: 3rem; height: 3rem; border-radius: .75rem; display: flex;
+  align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;
+}
+.kpi-icon.blue { background: #dbeafe; }
+.kpi-icon.green { background: #dcfce7; }
+.kpi-icon.red { background: #fef2f2; }
+.kpi-icon.amber { background: #fef3c7; }
+[data-theme="dark"] .kpi-icon.blue { background: #1e3a5f; }
+[data-theme="dark"] .kpi-icon.green { background: #14532d; }
+[data-theme="dark"] .kpi-icon.red { background: #450a0a; }
+[data-theme="dark"] .kpi-icon.amber { background: #451a03; }
+.kpi-num { font-size: clamp(1.25rem, 2.2vw, 1.625rem); font-weight: 700; color: var(--text); line-height: 1.1; }
+.kpi-label { font-size: .6875rem; color: var(--text-secondary); }
+
+/* ── 仪表盘图表行 ── */
+.dash-charts {
+  display: grid; grid-template-columns: 2fr 1fr;
+  gap: clamp(.5rem, 1.2vw, .875rem); margin-bottom: clamp(.5rem, 1.2vw, .875rem);
 }
 
 /* ── 图表 ── */
@@ -362,7 +379,8 @@ tr:hover td { background: #f8fafc; }
   .header { padding: 0 .75rem; }
   .header h1 { font-size: .875rem; }
   .header .subtitle, .header .status-bar span:not(:first-child) { display: none; }
-  .dash-grid { grid-template-columns: 1fr; }
+  .dash-charts { grid-template-columns: 1fr; }
+  .dash-kpi { grid-template-columns: 1fr 1fr; }
 }
 </style>
 </style>
@@ -597,27 +615,28 @@ tr:hover td { background: #f8fafc; }
 
   <!-- ══════ 面板：仪表盘 ══════ -->
   <section class="panel" id="panel-dashboard">
-    <div class="stats-row dash-stats" id="dashStatsRow"></div>
-    <div class="dash-grid">
-      <div class="card dash-card">
-        <div class="card-title">📈 签发趋势（近6个月）</div>
-        <div class="bar-chart" id="trendChart">加载中...</div>
+    <!-- 指标卡片 -->
+    <div class="dash-kpi" id="dashKPI"></div>
+
+    <!-- 趋势图 + 饼图 -->
+    <div class="dash-charts">
+      <div class="card">
+        <div class="card-title">📈 近6个月签发趋势</div>
+        <div class="bar-chart" id="trendChart"></div>
       </div>
-      <div class="card dash-card">
+      <div class="card">
         <div class="card-title">🍩 证书类型分布</div>
         <div class="pie-wrap">
           <div class="pie-chart" id="typePie"></div>
           <div class="pie-legend" id="pieLegend"></div>
         </div>
       </div>
-      <div class="card dash-card">
-        <div class="card-title">🕐 近期活动时间线</div>
-        <div class="timeline" id="activityTimeline">加载中...</div>
-      </div>
-      <div class="card dash-card">
-        <div class="card-title">📋 CA 层级概览</div>
-        <div id="caTreeOverview">加载中...</div>
-      </div>
+    </div>
+
+    <!-- 活动时间线 -->
+    <div class="card">
+      <div class="card-title">🕐 近期操作记录</div>
+      <div class="timeline" id="activityTimeline"></div>
     </div>
   </section>
 
@@ -1301,55 +1320,71 @@ function initTheme() {
 // ── 仪表盘 ──
 async function loadDashboard() {
   try {
-    // Stats
     const s = await api('/api/statistics');
     const stats = s.statistics;
     const root = await api('/api/ca/info');
-    $('dashStatsRow').innerHTML = `
-      <div class="stat-card"><div class="stat-num">${root.root_ca?'✅':'❌'}</div><div class="stat-label">根CA</div></div>
-      <div class="stat-card"><div class="stat-num">${stats.active_certificates}</div><div class="stat-label">在用证书</div></div>
-      <div class="stat-card warn"><div class="stat-num">${stats.revoked_certificates}</div><div class="stat-label">已注销</div></div>
-      <div class="stat-card"><div class="stat-num">${stats.active_signing}</div><div class="stat-label">签名证书</div></div>
-      <div class="stat-card"><div class="stat-num">${stats.active_encryption}</div><div class="stat-label">加密证书</div></div>
-      <div class="stat-card"><div class="stat-num">${stats.total}</div><div class="stat-label">总计</div></div>`;
 
-    // Trend chart (last 6 months from cert data)
+    // 查询即将过期证书数量
+    let expiringCount = 0;
+    try { const er = await api('/api/certificates/expiring?within_days=30'); expiringCount = er.count || 0; } catch(e) {}
+
+    // 查询中间 CA 数量
+    let icaCount = 0;
+    try { const cr = await api('/api/ca/list'); icaCount = cr.cas ? cr.cas.filter(c => c.level === 'intermediate').length : 0; } catch(e) {}
+
+    // KPI 卡片
+    $('dashKPI').innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-icon green">✅</div>
+        <div><div class="kpi-num">${stats.active_certificates}</div><div class="kpi-label">在用证书</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon red">🗑️</div>
+        <div><div class="kpi-num">${stats.revoked_certificates}</div><div class="kpi-label">已注销证书</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon amber">⏰</div>
+        <div><div class="kpi-num">${expiringCount}</div><div class="kpi-label">30天内过期</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon blue">🏢</div>
+        <div><div class="kpi-num">${icaCount}</div><div class="kpi-label">中间 CA</div></div>
+      </div>`;
+
+    // 图表
     const certs = await api('/api/certificates');
     buildTrendChart(certs.certificates || []);
-
-    // Pie chart
     buildPieChart(stats);
-
-    // Activity timeline
     buildTimeline(certs.certificates || []);
 
-    // CA tree
-    buildCATree();
-
-    // Demo banner
+    // 演示横幅
     $('demoBanner').style.display = (stats.total === 0 && !root.root_ca) ? '' : 'none';
   } catch(e) { console.error(e); }
 }
 
 function buildTrendChart(certs) {
-  const months = [];
-  const now = new Date();
+  const months = [], now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push({ key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, label: `${d.getMonth()+1}月`, count: 0 });
   }
   certs.forEach(c => {
-    if (c.issue_date) {
-      const d = new Date(c.issue_date + ' UTC');
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-      const m = months.find(m => m.key === key);
-      if (m) m.count++;
-    }
+    if (!c.issue_date) return;
+    const d = new Date(c.issue_date + ' UTC');
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const m = months.find(m => m.key === key);
+    if (m) m.count++;
   });
   const max = Math.max(1, ...months.map(m => m.count));
-  $('trendChart').innerHTML = months.map(m => {
-    const h = Math.max(4, (m.count / max) * 140);
-    return `<div class="bar-col"><div class="bar-val">${m.count}</div><div class="bar-fill" style="height:${h/(16)}rem;"></div><div class="bar-label">${m.label}</div></div>`;
+  const el = $('trendChart');
+  if (!el) return;
+  el.innerHTML = months.map(m => {
+    const pct = Math.max(5, (m.count / max) * 100);
+    return `<div class="bar-col">
+      <div class="bar-val">${m.count}</div>
+      <div class="bar-fill" style="height:${pct}%;"></div>
+      <div class="bar-label">${m.label}</div>
+    </div>`;
   }).join('');
 }
 
@@ -1360,63 +1395,28 @@ function buildPieChart(stats) {
   const total = signing + encryption + revoked || 1;
   const sDeg = (signing / total) * 360;
   const eDeg = (encryption / total) * 360;
-  $('typePie').style.background = `conic-gradient(#2563eb 0deg ${sDeg}deg, #f59e0b ${sDeg}deg ${sDeg+eDeg}deg, #dc2626 ${sDeg+eDeg}deg 360deg)`;
+  const el = $('typePie'); if (!el) return;
+  el.style.background = `conic-gradient(#2563eb 0deg ${sDeg}deg, #f59e0b ${sDeg}deg ${sDeg+eDeg}deg, #dc2626 ${sDeg+eDeg}deg 360deg)`;
   $('pieLegend').innerHTML = `
-    <span><span class="pie-dot" style="background:#2563eb;"></span> 签名 ${signing}</span>
-    <span><span class="pie-dot" style="background:#f59e0b;"></span> 加密 ${encryption}</span>
-    <span><span class="pie-dot" style="background:#dc2626;"></span> 已注销 ${revoked}</span>`;
+    <span><span class="pie-dot" style="background:#2563eb;"></span>签名 ${signing}</span>
+    <span><span class="pie-dot" style="background:#f59e0b;"></span>加密 ${encryption}</span>
+    <span><span class="pie-dot" style="background:#dc2626;"></span>已注销 ${revoked}</span>`;
 }
 
 function buildTimeline(certs) {
-  const sorted = [...certs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 12);
-  if (sorted.length === 0) {
-    $('activityTimeline').innerHTML = '<span style="color:var(--text-secondary);">暂无活动记录</span>';
-    return;
-  }
-  $('activityTimeline').innerHTML = sorted.map(c => {
+  const sorted = [...certs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 10);
+  const el = $('activityTimeline'); if (!el) return;
+  if (sorted.length === 0) { el.innerHTML = '<div class="empty-state">暂无操作记录</div>'; return; }
+  el.innerHTML = sorted.map(c => {
     const isRevoke = c.status === 'revoked';
     const cls = isRevoke ? 'revoke' : 'issue';
-    const action = isRevoke ? `🗑️ 吊销: ${c.revoke_reason||'—'}` : `📜 ${c.type==='signing'?'签发签名证书':'签发加密证书'}`;
-    const subject = escapeHtml(c.subject_dn).substring(0, 50);
+    const action = isRevoke ? `吊销 (${c.revoke_reason||'—'})` : `${c.type==='signing'?'签发签名证书':'签发加密证书'}`;
     return `<div class="timeline-item ${cls}">
       <div class="timeline-time">${fmtTs(isRevoke ? c.revoke_date : c.issue_date)}</div>
-      <div class="timeline-text">${action} — <span style="color:var(--text-secondary);">${subject}</span></div>
-      <div class="mono" style="font-size:.625rem;color:var(--text-secondary);">${c.serial?.substring(0,16)}...</div>
+      <div class="timeline-text">${action}</div>
+      <div class="mono" style="font-size:.625rem;color:var(--text-secondary);">${escapeHtml(c.subject_dn).substring(0,50)}</div>
     </div>`;
   }).join('');
-}
-
-async function buildCATree() {
-  try {
-    const r = await api('/api/ca/list');
-    if (!r.cas || r.cas.length === 0) {
-      $('caTreeOverview').innerHTML = '<span style="color:var(--text-secondary);">暂无 CA</span>';
-      return;
-    }
-    let html = '<div class="tree">';
-    // Root CA first
-    const roots = r.cas.filter(c => c.level === 'root');
-    const intermediates = r.cas.filter(c => c.level === 'intermediate');
-    roots.forEach((ca, i) => {
-      html += `<div class="tree-node root">
-        <div style="font-weight:600;">🏛️ 根 CA</div>
-        <div style="font-size:.625rem;color:var(--text-secondary);" class="mono">${ca.serial?.substring(0,14)}...</div>
-        <div style="font-size:.6875rem;">${escapeHtml(ca.subject?.substring(0,35))}</div>
-      </div>`;
-      if (intermediates.length > 0 && i === 0) {
-        html += '<div class="tree-connector"><span class="arrow">▼ 签发 ▼</span></div>';
-      }
-    });
-    intermediates.forEach((ca, i) => {
-      html += `<div class="tree-node intermediate">
-        <div style="font-weight:600;">🏢 中间 CA</div>
-        <div style="font-size:.625rem;color:var(--text-secondary);" class="mono">${ca.serial?.substring(0,14)}...</div>
-        <div style="font-size:.6875rem;">${escapeHtml(ca.subject?.substring(0,35))}</div>
-      </div>`;
-    });
-    html += '</div>';
-    $('caTreeOverview').innerHTML = html;
-  } catch(e) { $('caTreeOverview').innerHTML = '<span style="color:var(--text-secondary);">加载失败</span>'; }
 }
 
 // ── 演示模式 ──
