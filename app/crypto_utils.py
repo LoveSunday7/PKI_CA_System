@@ -498,6 +498,186 @@ def get_crl_info() -> dict | None:
     }
 
 
+def renew_single_cert(
+    existing_key_path: str,
+    dn: str,
+    days: int,
+    cert_type: str,
+    algorithm: str = "ECDSA-P256",
+) -> tuple[bool, str, dict]:
+    """
+    用已有密钥文件续期单张证书（保留原密钥对）。
+    返回 (是否成功, 错误信息, 信息字典)。
+    """
+    pki_dir = str(PKI_DIR)
+    root_cert = os.path.join(pki_dir, "root.crt")
+    ca_conf = os.path.join(pki_dir, "ca.cnf")
+
+    if not os.path.exists(root_cert):
+        return False, "未找到根 CA 证书，请先签发根证书。", {}
+
+    if not os.path.exists(existing_key_path):
+        return False, f"密钥文件不存在: {existing_key_path}", {}
+
+    ts = _now_compact()
+
+    # 根据算法确定参数
+    if algorithm == "SM2":
+        sign_ext = "sm_signing_cert"
+        enc_ext = "sm_encryption_cert"
+        md_flag = "-sm3"
+    else:
+        sign_ext = "signing_cert"
+        enc_ext = "encryption_cert"
+        md_flag = "-sha256"
+
+    ext = sign_ext if cert_type == "signing" else enc_ext
+
+    csr_file = os.path.join(pki_dir, f"tmp-renew-{cert_type}-{ts}.csr")
+    conf_file = os.path.join(pki_dir, f"tmp-renew-{cert_type}-{ts}.cnf")
+    cert_tmp = os.path.join(pki_dir, f"tmp-renew-{cert_type}-{ts}.crt")
+
+    write_req_conf(conf_file, dn)
+
+    # 用已有密钥生成 CSR
+    cmd = (
+        f'{OPENSSL_BIN} req -new {md_flag} -key "{existing_key_path}" '
+        f'-config "{conf_file}" -out "{csr_file}"'
+    )
+    if not _run_ok(cmd):
+        return False, f"CSR 生成失败（续期）", {}
+
+    # CA 签发
+    cmd = (
+        f'{OPENSSL_BIN} ca -batch -config "{ca_conf}" '
+        f'-extensions {ext} -days {days} -in "{csr_file}" '
+        f'-out "{cert_tmp}" -notext'
+    )
+    if not _run_ok(cmd):
+        return False, f"CA 签发失败（续期）", {}
+
+    serial = get_cert_serial(cert_tmp)
+
+    # 移动到最终位置
+    cert_final = os.path.join(pki_dir, "active-certificates", f"{serial}.cer.pem")
+    key_final = os.path.join(pki_dir, "active-keys", f"{serial}.key.pem")
+    os.makedirs(os.path.dirname(cert_final), exist_ok=True)
+    os.makedirs(os.path.dirname(key_final), exist_ok=True)
+    os.rename(cert_tmp, cert_final)
+
+    # 续期场景：复制原密钥到对应位置
+    with open(existing_key_path, "rb") as src:
+        with open(key_final, "wb") as dst:
+            dst.write(src.read())
+
+    start, end = get_cert_dates(cert_final)
+    with open(cert_final) as f:
+        cert_pem = f.read()
+    with open(key_final) as f:
+        key_pem = f.read()
+
+    return True, "", {
+        "serial": serial,
+        "type": cert_type,
+        "cert_file": cert_final,
+        "key_file": key_final,
+        "cert_pem": cert_pem,
+        "key_pem": key_pem,
+        "issue_date": start,
+        "expiry_date": end,
+    }
+
+
+def rekey_single_cert(
+    dn: str,
+    days: int,
+    cert_type: str,
+    algorithm: str = "ECDSA-P256",
+) -> tuple[bool, str, dict]:
+    """
+    生成全新密钥对并签发单张证书（密钥更新）。
+    返回 (是否成功, 错误信息, 信息字典)。
+    """
+    pki_dir = str(PKI_DIR)
+    root_cert = os.path.join(pki_dir, "root.crt")
+    ca_conf = os.path.join(pki_dir, "ca.cnf")
+
+    if not os.path.exists(root_cert):
+        return False, "未找到根 CA 证书，请先签发根证书。", {}
+
+    ts = _now_compact()
+
+    # 根据算法确定参数
+    if algorithm == "SM2":
+        sign_ext = "sm_signing_cert"
+        enc_ext = "sm_encryption_cert"
+        md_flag = "-sm3"
+        curve = "SM2"
+    else:
+        sign_ext = "signing_cert"
+        enc_ext = "encryption_cert"
+        md_flag = "-sha256"
+        curve = "prime256v1"
+
+    ext = sign_ext if cert_type == "signing" else enc_ext
+
+    key_file = os.path.join(pki_dir, f"tmp-rekey-{cert_type}-{ts}.key")
+    csr_file = os.path.join(pki_dir, f"tmp-rekey-{cert_type}-{ts}.csr")
+    conf_file = os.path.join(pki_dir, f"tmp-rekey-{cert_type}-{ts}.cnf")
+    cert_tmp = os.path.join(pki_dir, f"tmp-rekey-{cert_type}-{ts}.crt")
+
+    write_req_conf(conf_file, dn)
+
+    # 生成新密钥
+    cmd = f'{OPENSSL_BIN} ecparam -name {curve} -genkey -noout -out "{key_file}"'
+    if not _run_ok(cmd):
+        return False, f"密钥生成失败（更新）", {}
+
+    # 生成 CSR
+    cmd = (
+        f'{OPENSSL_BIN} req -new {md_flag} -key "{key_file}" '
+        f'-config "{conf_file}" -out "{csr_file}"'
+    )
+    if not _run_ok(cmd):
+        return False, f"CSR 生成失败（更新）", {}
+
+    # CA 签发
+    cmd = (
+        f'{OPENSSL_BIN} ca -batch -config "{ca_conf}" '
+        f'-extensions {ext} -days {days} -in "{csr_file}" '
+        f'-out "{cert_tmp}" -notext'
+    )
+    if not _run_ok(cmd):
+        return False, f"CA 签发失败（更新）", {}
+
+    serial = get_cert_serial(cert_tmp)
+
+    # 移动到最终位置
+    cert_final = os.path.join(pki_dir, "active-certificates", f"{serial}.cer.pem")
+    key_final = os.path.join(pki_dir, "active-keys", f"{serial}.key.pem")
+    os.makedirs(os.path.dirname(cert_final), exist_ok=True)
+    os.makedirs(os.path.dirname(key_final), exist_ok=True)
+    os.rename(cert_tmp, cert_final)
+    os.rename(key_file, key_final)
+
+    start, end = get_cert_dates(cert_final)
+    with open(cert_final) as f:
+        cert_pem = f.read()
+    with open(key_final) as f:
+        key_pem = f.read()
+
+    return True, "", {
+        "serial": serial,
+        "type": cert_type,
+        "cert_file": cert_final,
+        "key_file": key_final,
+        "cert_pem": cert_pem,
+        "key_pem": key_pem,
+        "issue_date": start,
+        "expiry_date": end,
+    }
+
+
 def build_dn(cn: str, ou: str = "", o: str = "", email: str = "",
              st: str = "", l: str = "", c: str = "") -> str:
     """构建 OpenSSL 格式的 DN 字符串。"""

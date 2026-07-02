@@ -3,6 +3,7 @@ PKI/CA 系统 — FastAPI 后端服务
 数字证书生命周期管理
 """
 
+import os
 import uuid
 from pathlib import Path
 
@@ -54,6 +55,31 @@ class RevokeRequest(BaseModel):
 
 class IssueCRLRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=365, description="CRL 有效天数")
+
+
+class BatchIssueItem(BaseModel):
+    cn: str = Field(..., description="通用名称，必填")
+    ou: str = Field(default="", description="组织单位")
+    o: str = Field(default="", description="组织")
+    email: str = Field(default="", description="电子邮箱")
+    st: str = Field(default="", description="省份")
+    l: str = Field(default="", description="城市")
+    c: str = Field(default="", description="国家")
+    days: int = Field(default=365, ge=1, le=36500, description="有效天数")
+    algorithm: str = Field(default="ECDSA-P256", description="算法")
+
+
+class BatchIssueRequest(BaseModel):
+    items: list[BatchIssueItem] = Field(..., min_length=1, max_length=100, description="批量签发列表")
+
+
+class RenewRequest(BaseModel):
+    days: int = Field(default=365, ge=1, le=36500, description="续期天数")
+
+
+class RekeyRequest(BaseModel):
+    days: int = Field(default=365, ge=1, le=36500, description="更新后天数")
+    algorithm: str = Field(default="ECDSA-P256", description="新密钥算法")
 
 
 # ── 静态文件与前端页面 ───────────────────────────────────────────
@@ -246,6 +272,34 @@ async def list_certificates(
     }
 
 
+@app.get("/api/certificates/expiring")
+async def get_expiring_certificates(
+    within_days: int = Query(default=30, ge=1, le=365, description="查询未来多少天内过期的证书"),
+):
+    """获取即将过期的活跃证书列表。"""
+    try:
+        expiring = database.get_expiring_certificates(within_days=within_days)
+        return {
+            "status": "ok",
+            "count": len(expiring),
+            "certificates": [
+                {
+                    "serial": c["serial_number"],
+                    "subject_dn": c["subject_dn"],
+                    "type": c["cert_type"],
+                    "algorithm": c["algorithm"],
+                    "issue_date": c["issue_date"],
+                    "expiry_date": c["expiry_date"],
+                    "days_left": c.get("_days_left", -999),
+                    "group_id": c["group_id"],
+                }
+                for c in expiring
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/certificates/{serial}")
 async def get_certificate_detail(serial: str):
     """获取指定证书的详细信息。"""
@@ -291,6 +345,207 @@ async def download_certificate(serial: str, file_type: str = Query(default="cert
         raise HTTPException(status_code=400, detail="file_type 参数必须为 'cert' 或 'key'")
 
     return JSONResponse({"status": "ok", "filename": filename, "content": content})
+
+
+# ── 批量签发端点 ─────────────────────────────────────────────────
+
+@app.post("/api/certificates/batch-issue")
+async def batch_issue_certificates(req: BatchIssueRequest):
+    """批量签发用户证书，接受用户列表。"""
+    try:
+        root = database.get_active_root_ca()
+        if not root:
+            raise HTTPException(status_code=400, detail="未找到根 CA 证书，请先签发根证书。")
+
+        results = []
+        success_count = 0
+        fail_count = 0
+
+        for item in req.items:
+            try:
+                dn = crypto_utils.build_dn(
+                    cn=item.cn, ou=item.ou, o=item.o, email=item.email,
+                    st=item.st, l=item.l, c=item.c,
+                )
+                ok, err, result = crypto_utils.issue_user_cert(
+                    dn=dn, days=item.days, algorithm=item.algorithm,
+                )
+                if not ok:
+                    results.append({"cn": item.cn, "success": False, "error": err})
+                    fail_count += 1
+                    continue
+
+                group_id = f"{crypto_utils._now_compact()}{uuid.uuid4().hex[:4]}"
+                issuer_dn = root["subject_dn"]
+
+                saved_certs = []
+                for cert_type in ["signing", "encryption"]:
+                    cert_info = result[cert_type].copy()
+                    cert_info["dn"] = dn
+                    cert_info["algorithm"] = item.algorithm
+                    cert_id = database.save_certificate(cert_info, cert_type, group_id, issuer_dn)
+                    saved_certs.append({
+                        "serial": cert_info["serial"],
+                        "type": cert_type,
+                    })
+
+                results.append({
+                    "cn": item.cn,
+                    "success": True,
+                    "group_id": group_id,
+                    "certificates": saved_certs,
+                })
+                success_count += 1
+            except Exception as e:
+                results.append({"cn": item.cn, "success": False, "error": str(e)})
+                fail_count += 1
+
+        return {
+            "status": "ok",
+            "message": f"批量签发完成：成功 {success_count}，失败 {fail_count}",
+            "data": {
+                "total": len(req.items),
+                "success": success_count,
+                "failed": fail_count,
+                "results": results,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── 证书续期与密钥更新端点 ───────────────────────────────────────
+
+@app.post("/api/certificates/{serial}/renew")
+async def renew_certificate(serial: str, req: RenewRequest):
+    """用原密钥对续期证书（保留 DN 和密钥）。"""
+    try:
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        if cert["status"] != "active":
+            raise HTTPException(status_code=400, detail="只能续期活跃状态的证书。")
+
+        # 读取原密钥文件
+        existing_key_path = cert["key_file_path"]
+        if not os.path.exists(existing_key_path):
+            raise HTTPException(status_code=400, detail=f"原密钥文件不存在: {existing_key_path}")
+
+        # 执行续期
+        ok, err, info = crypto_utils.renew_single_cert(
+            existing_key_path=existing_key_path,
+            dn=cert["subject_dn"],
+            days=req.days,
+            cert_type=cert["cert_type"],
+            algorithm=cert["algorithm"],
+        )
+
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        # 保存到数据库
+        root = database.get_active_root_ca()
+        cert_info = info.copy()
+        cert_info["dn"] = cert["subject_dn"]
+        cert_info["algorithm"] = cert["algorithm"]
+        database.save_certificate(cert_info, cert["cert_type"], cert["group_id"], root["subject_dn"])
+
+        return {
+            "status": "ok",
+            "message": f"证书 {serial} 续期成功，新序列号: {info['serial']}。",
+            "data": {
+                "old_serial": serial,
+                "new_serial": info["serial"],
+                "cert_type": cert["cert_type"],
+                "issue_date": info["issue_date"],
+                "expiry_date": info["expiry_date"],
+                "days": req.days,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/certificates/{serial}/rekey")
+async def rekey_certificate(serial: str, req: RekeyRequest):
+    """生成新密钥对并重新签发证书（密钥更新）。原证书将被吊销（原因: superseded）。"""
+    try:
+        cert = database.get_certificate_by_serial(serial)
+        if not cert:
+            raise HTTPException(status_code=404, detail=f"证书 {serial} 未找到。")
+
+        if cert["status"] != "active":
+            raise HTTPException(status_code=400, detail="只能对活跃状态的证书执行密钥更新。")
+
+        # 执行 rekey
+        ok, err, info = crypto_utils.rekey_single_cert(
+            dn=cert["subject_dn"],
+            days=req.days,
+            cert_type=cert["cert_type"],
+            algorithm=req.algorithm,
+        )
+
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        # 保存新证书到数据库
+        root = database.get_active_root_ca()
+        cert_info = info.copy()
+        cert_info["dn"] = cert["subject_dn"]
+        cert_info["algorithm"] = req.algorithm
+        database.save_certificate(cert_info, cert["cert_type"], cert["group_id"], root["subject_dn"])
+
+        # 吊销旧证书（原因: superseded）
+        crypto_utils.revoke_certificate(serial, "superseded")
+        database.revoke_certificate_in_db(serial, "superseded")
+
+        return {
+            "status": "ok",
+            "message": f"证书 {serial} 密钥更新成功，新序列号: {info['serial']}，旧证书已吊销。",
+            "data": {
+                "old_serial": serial,
+                "new_serial": info["serial"],
+                "cert_type": cert["cert_type"],
+                "algorithm": req.algorithm,
+                "issue_date": info["issue_date"],
+                "expiry_date": info["expiry_date"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/certificates/{serial}/restore")
+async def restore_certificate(serial: str):
+    """恢复被暂扣 (certificateHold) 的证书为活跃状态。"""
+    try:
+        restored = database.restore_certificate_in_db(serial)
+        if not restored:
+            raise HTTPException(status_code=400, detail="该证书不是暂扣状态，无法恢复。仅 certificateHold 吊销的证书可恢复。")
+
+        # 重新生成 CRL 以移除已恢复的证书
+        crypto_utils.issue_crl(days=7)
+
+        return {
+            "status": "ok",
+            "message": f"证书 {serial} 已从暂扣状态恢复为活跃状态。",
+            "data": {
+                "serial": serial,
+                "subject_dn": restored["subject_dn"],
+                "type": restored["cert_type"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── 吊销端点 ─────────────────────────────────────────────────────

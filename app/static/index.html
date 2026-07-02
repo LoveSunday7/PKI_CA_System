@@ -130,7 +130,46 @@ tr:hover td { background: #f8fafc; }
 .badge-revoked { background: #fef2f2; color: #991b1b; }
 .badge-signing { background: #dbeafe; color: #1e40af; }
 .badge-encryption { background: #fef3c7; color: #92400e; }
+.badge-hold { background: #fce7f3; color: #9d174d; }
+.badge-expired { background: #f1f5f9; color: #64748b; }
 .mono { font-family: "SF Mono", "Cascadia Code", "Consolas", monospace; font-size: 12px; }
+
+/* ── 进度条 ── */
+.progress-wrap { display: flex; align-items: center; gap: 6px; min-width: 160px; }
+.progress-bar {
+  flex: 1; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;
+}
+.progress-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+.progress-fill.safe { background: #16a34a; }
+.progress-fill.warn { background: #f59e0b; }
+.progress-fill.danger { background: #dc2626; }
+.progress-text { font-size: 11px; white-space: nowrap; min-width: 55px; text-align: right; font-weight: 500; }
+.progress-text.safe { color: #16a34a; }
+.progress-text.warn { color: #d97706; }
+.progress-text.danger { color: #dc2626; }
+
+/* ── CSV 上传区域 ── */
+.upload-area {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 20px; text-align: center; margin-bottom: 16px;
+  transition: border-color .2s, background .2s; cursor: pointer;
+}
+.upload-area:hover { border-color: var(--primary); background: #f8fafc; }
+.upload-area.has-file { border-color: var(--success); background: #f0fdf4; }
+.csv-preview { max-height: 200px; overflow: auto; margin-top: 12px; font-size: 12px; }
+.csv-preview table { font-size: 11px; }
+
+/* ── 标签切换 ── */
+.sub-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.sub-tab {
+  padding: 6px 16px; border-radius: 16px; border: 1px solid var(--border);
+  font-size: 13px; cursor: pointer; background: #fff; font-family: inherit;
+  transition: all .2s;
+}
+.sub-tab:hover { border-color: var(--primary); color: var(--primary); }
+.sub-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.sub-panel { display: none; }
+.sub-panel.active { display: block; }
 
 /* ── 输出/日志 ── */
 .output-box {
@@ -266,12 +305,42 @@ tr:hover td { background: #f8fafc; }
 
     <div class="card">
       <div class="card-title">📋 在用证书列表</div>
-      <div class="table-wrap">
-        <table id="activeCertsTable">
-          <thead><tr><th>序列号</th><th>组ID</th><th>主体</th><th>类型</th><th>算法</th><th>签发时间</th><th>过期时间</th><th>操作</th></tr></thead>
-          <tbody><tr><td colspan="8" class="empty-state">点击「刷新在用证书」加载数据</td></tr></tbody>
-        </table>
+      <div class="sub-tabs">
+        <button class="sub-tab active" onclick="switchCertView('all')">全部</button>
+        <button class="sub-tab" onclick="switchCertView('expiring')">⚠️ 即将过期</button>
       </div>
+      <div class="sub-panel active" id="sub-all-certs">
+        <div class="table-wrap">
+          <table id="activeCertsTable">
+            <thead><tr><th>序列号</th><th>组ID</th><th>主体</th><th>类型</th><th>算法</th><th>签发时间</th><th>过期时间</th><th>剩余有效期</th><th>操作</th></tr></thead>
+            <tbody><tr><td colspan="9" class="empty-state">点击「刷新在用证书」加载数据</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="sub-panel" id="sub-expiring-certs">
+        <div class="table-wrap">
+          <table id="expiringCertsTable">
+            <thead><tr><th>序列号</th><th>主体</th><th>类型</th><th>过期时间</th><th>剩余天数</th><th>操作</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-state">点击「刷新」加载即将过期证书</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📦 批量签发证书（CSV 导入）</div>
+      <div class="card-desc">上传 CSV 文件批量签发证书。CSV 表头: cn,ou,o,email,st,l,c,days,algorithm。前 5 列为必填。</div>
+      <div class="upload-area" id="csvUploadArea" onclick="document.getElementById('csvFileInput').click()">
+        <div>📁 点击选择 CSV 文件 或拖拽到此处</div>
+        <div id="csvFileName" style="font-size:12px; color:var(--text-secondary); margin-top:4px;">未选择文件</div>
+      </div>
+      <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="handleCSVFile(this)">
+      <div class="csv-preview" id="csvPreview" style="display:none;"></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="batchIssueBtn" disabled onclick="batchIssue()">📦 批量签发</button>
+        <button class="btn btn-outline btn-sm" onclick="downloadCSVTemplate()">📥 下载 CSV 模板</button>
+      </div>
+      <div class="output-box" id="batchOutput" style="margin-top:12px; display:none;"></div>
     </div>
   </section>
 
@@ -362,6 +431,30 @@ function output(id, text, cls='') {
 }
 function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ── 有效期计算与进度条 ──
+function calcDaysLeft(expiryStr) {
+  try {
+    const d = new Date(expiryStr + ' UTC');
+    const now = new Date();
+    return Math.ceil((d - now) / (1000*60*60*24));
+  } catch(e) { return -999; }
+}
+
+function renderProgressBar(daysLeft) {
+  let cls, pct, clsText;
+  if (daysLeft < 0) {
+    cls = 'danger'; pct = 100; clsText = 'danger';
+    return `<div class="progress-wrap"><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${pct}%"></div></div><span class="progress-text ${clsText}">已过期</span></div>`;
+  } else if (daysLeft <= 7) {
+    cls = 'danger'; pct = Math.min(100, 100 - (daysLeft/7)*100); clsText = 'danger';
+  } else if (daysLeft <= 30) {
+    cls = 'warn'; pct = Math.min(100, 100 - (daysLeft/30)*100); clsText = 'warn';
+  } else {
+    cls = 'safe'; pct = Math.min(100, (daysLeft/365)*100); clsText = 'safe';
+  }
+  return `<div class="progress-wrap"><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${100-pct}%"></div></div><span class="progress-text ${clsText}">${daysLeft} 天</span></div>`;
+}
+
 // ── 导航切换 ──
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -373,6 +466,21 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     if (btn.dataset.panel === 'user') loadActiveCerts();
   });
 });
+
+// ── 在用户证书页面切换全部/即将过期视图 ──
+function switchCertView(view) {
+  document.querySelectorAll('#panel-user .sub-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#panel-user .sub-panel').forEach(p => p.classList.remove('active'));
+  if (view === 'all') {
+    document.querySelector('#panel-user .sub-tab').classList.add('active');
+    $('sub-all-certs').classList.add('active');
+    loadActiveCerts();
+  } else {
+    document.querySelectorAll('#panel-user .sub-tab')[1].classList.add('active');
+    $('sub-expiring-certs').classList.add('active');
+    loadExpiringCerts();
+  }
+}
 
 // ── 系统状态 ──
 async function loadStatus() {
@@ -467,10 +575,11 @@ async function loadActiveCerts() {
     const r = await api('/api/certificates?status=active');
     const tbody = document.querySelector('#activeCertsTable tbody');
     if (!r.certificates || r.certificates.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无在用证书</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无在用证书</td></tr>';
     } else {
-      tbody.innerHTML = r.certificates.map(c => `
-        <tr>
+      tbody.innerHTML = r.certificates.map(c => {
+        const daysLeft = calcDaysLeft(c.expiry_date);
+        return `<tr>
           <td class="mono">${c.serial}</td>
           <td class="mono">${c.group_id?.substring(0,16)||'-'}...</td>
           <td>${escapeHtml(c.subject_dn)}</td>
@@ -478,14 +587,172 @@ async function loadActiveCerts() {
           <td>${c.algorithm}</td>
           <td>${fmtTs(c.issue_date)}</td>
           <td>${fmtTs(c.expiry_date)}</td>
-          <td>
+          <td>${renderProgressBar(daysLeft)}</td>
+          <td style="white-space:nowrap;">
             <button class="btn btn-outline btn-sm" onclick="viewCert('${c.serial}')">详情</button>
             <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button>
-            <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','key')">密钥</button>
+            <button class="btn btn-outline btn-sm" onclick="renewCert('${c.serial}')">续期</button>
+            <button class="btn btn-outline btn-sm" onclick="rekeyCert('${c.serial}')">更新密钥</button>
           </td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     }
   } catch(e) { console.error(e); }
+}
+
+// ── 即将过期证书 ──
+async function loadExpiringCerts() {
+  const tbody = document.querySelector('#expiringCertsTable tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="empty-state">正在加载...</td></tr>';
+  try {
+    const r = await api('/api/certificates/expiring?within_days=60');
+    if (!r.certificates || r.certificates.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">✅ 暂无即将过期证书（未来60天内）</td></tr>';
+    } else {
+      tbody.innerHTML = r.certificates.map(c => {
+        const cls = c.days_left <= 7 ? 'danger' : (c.days_left <= 30 ? 'warn' : 'safe');
+        return `<tr>
+          <td class="mono">${c.serial}</td>
+          <td>${escapeHtml(c.subject_dn)}</td>
+          <td><span class="badge ${c.type==='signing'?'badge-signing':'badge-encryption'}">${c.type==='signing'?'签名':'加密'}</span></td>
+          <td>${fmtTs(c.expiry_date)}</td>
+          <td><span class="progress-text ${cls}">${c.days_left} 天</span></td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="renewCert('${c.serial}')">续期</button>
+            <button class="btn btn-outline btn-sm" onclick="rekeyCert('${c.serial}')">更新密钥</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">加载失败</td></tr>'; }
+}
+
+// ── 续期、密钥更新、恢复 ──
+async function renewCert(serial) {
+  const days = prompt('请输入续期天数:', '365');
+  if (!days) return;
+  try {
+    const r = await api(`/api/certificates/${serial}/renew`, {method:'POST', body:JSON.stringify({days: parseInt(days)})});
+    if (r.status === 'ok') {
+      toast(`续期成功！新序列号: ${r.data.new_serial}`, 'success');
+      loadActiveCerts();
+    } else {
+      toast('续期失败: ' + (r.detail || r.message), 'error');
+    }
+  } catch(e) { toast('续期失败: ' + e.message, 'error'); }
+  loadStatus();
+}
+
+async function rekeyCert(serial) {
+  const algorithm = prompt('请输入新密钥算法 (ECDSA-P256 或 SM2):', 'ECDSA-P256');
+  if (!algorithm) return;
+  const days = prompt('请输入有效期天数:', '365');
+  if (!days) return;
+  try {
+    const r = await api(`/api/certificates/${serial}/rekey`, {method:'POST', body:JSON.stringify({days: parseInt(days), algorithm})});
+    if (r.status === 'ok') {
+      toast(`密钥更新成功！新序列号: ${r.data.new_serial}`, 'success');
+      loadActiveCerts();
+      loadActiveCertsForRevoke();
+    } else {
+      toast('密钥更新失败: ' + (r.detail || r.message), 'error');
+    }
+  } catch(e) { toast('密钥更新失败: ' + e.message, 'error'); }
+  loadStatus();
+}
+
+async function restoreCert(serial) {
+  if (!confirm(`确认恢复证书 ${serial} 为活跃状态吗？`)) return;
+  try {
+    const r = await api(`/api/certificates/${serial}/restore`, {method:'POST'});
+    if (r.status === 'ok') {
+      toast(`证书 ${serial} 已恢复！`, 'success');
+      loadRevokedCerts();
+      loadActiveCerts();
+    } else {
+      toast('恢复失败: ' + (r.detail || r.message), 'error');
+    }
+  } catch(e) { toast('恢复失败: ' + e.message, 'error'); }
+  loadStatus();
+}
+
+// ── 批量签发（CSV） ──
+let csvData = [];
+
+function handleCSVFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  $('csvFileName').textContent = file.name;
+  $('csvUploadArea').classList.add('has-file');
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    if (lines.length < 2) { toast('CSV 文件至少需要表头和一列数据', 'error'); return; }
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    csvData = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(',');
+      const row = {};
+      headers.forEach((h, j) => { row[h] = (vals[j] || '').trim(); });
+      if (row.cn) csvData.push(row);
+    }
+    // 预览
+    let preview = '<table><thead><tr>';
+    headers.forEach(h => { preview += `<th>${escapeHtml(h)}</th>`; });
+    preview += '</tr></thead><tbody>';
+    csvData.forEach(r => {
+      preview += '<tr>';
+      headers.forEach(h => { preview += `<td>${escapeHtml(r[h]||'')}</td>`; });
+      preview += '</tr>';
+    });
+    preview += '</tbody></table>';
+    $('csvPreview').innerHTML = preview;
+    $('csvPreview').style.display = 'block';
+    $('batchIssueBtn').disabled = csvData.length === 0;
+    toast(`已解析 ${csvData.length} 个用户`, 'info');
+  };
+  reader.readAsText(file);
+}
+
+function downloadCSVTemplate() {
+  const csv = 'cn,ou,o,email,st,l,c,days,algorithm\nstudent001,计算机学院,实训用户,s001@example.edu,山东,济南,CN,365,ECDSA-P256\nstudent002,信息学院,实训用户,s002@example.edu,山东,济南,CN,365,ECDSA-P256';
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'batch_cert_template.csv'; a.click();
+  toast('模板已下载', 'info');
+}
+
+async function batchIssue() {
+  if (csvData.length === 0) { toast('请先选择 CSV 文件', 'error'); return; }
+  if (!confirm(`确认批量签发 ${csvData.length} 个用户的双证书吗？`)) return;
+
+  const items = csvData.map(r => ({
+    cn: r.cn, ou: r.ou||'', o: r.o||'', email: r.email||'',
+    st: r.st||'', l: r.l||'', c: r.c||'',
+    days: parseInt(r.days)||365, algorithm: r.algorithm||'ECDSA-P256'
+  }));
+
+  $('batchOutput').style.display = 'block';
+  output('batchOutput', `正在批量签发 ${items.length} 个用户，请稍候...`, 'info');
+  try {
+    const r = await api('/api/certificates/batch-issue', {method:'POST', body:JSON.stringify({items})});
+    if (r.status === 'ok') {
+      let txt = `✅ 批量签发完成！\n成功: ${r.data.success} | 失败: ${r.data.failed}\n\n`;
+      r.data.results.forEach(res => {
+        txt += res.success
+          ? `✅ ${res.cn} | 组ID: ${res.group_id?.substring(0,20)}...\n`
+          : `❌ ${res.cn} | ${res.error}\n`;
+      });
+      output('batchOutput', txt, r.data.failed === 0 ? 'ok' : 'info');
+      toast(`批量签发完成: ${r.data.success}/${r.data.total} 成功`, r.data.failed===0?'success':'info');
+      loadActiveCerts();
+    } else {
+      output('batchOutput', '❌ 批量签发失败: ' + (r.detail || r.message), 'err');
+      toast('批量签发失败', 'error');
+    }
+  } catch(e) { output('batchOutput', '请求异常: ' + e.message, 'err'); }
+  loadStatus();
 }
 
 // ── 吊销操作 ──
@@ -503,20 +770,22 @@ async function loadActiveCertsForRevoke() {
 async function revokeCert() {
   const serial = $('revokeCertSelect').value;
   if (!serial) { toast('请先选择要注销的证书', 'error'); return; }
-  if (!confirm(`确认注销证书 ${serial} 及其同组证书吗？此操作不可撤销。`)) return;
+  const reason = $('revokeReason').value;
+  const confirmMsg = reason === 'certificateHold'
+    ? `确认暂扣证书 ${serial} 及其同组证书吗？（可恢复）`
+    : `确认注销证书 ${serial} 及其同组证书吗？此操作不可撤销。`;
+  if (!confirm(confirmMsg)) return;
   try {
-    const r = await api('/api/certificates/revoke', {method:'POST', body:JSON.stringify({
-      serial, reason: $('revokeReason').value
-    })});
+    const r = await api('/api/certificates/revoke', {method:'POST', body:JSON.stringify({serial, reason})});
     if (r.status === 'ok') {
       output('crlOutput', `✅ ${r.message}\n\n组ID: ${r.data.group_id}\n原因: ${r.data.reason}`, 'ok');
-      toast('证书注销成功!', 'success');
+      toast('操作成功!', 'success');
       loadActiveCertsForRevoke();
       loadActiveCerts();
       loadRevokedCerts();
     } else {
-      output('crlOutput', '❌ 注销失败: ' + (r.detail || r.message), 'err');
-      toast('注销失败', 'error');
+      output('crlOutput', '❌ 操作失败: ' + (r.detail || r.message), 'err');
+      toast('操作失败', 'error');
     }
   } catch(e) { output('crlOutput', '请求异常: ' + e.message, 'err'); }
   loadStatus();
@@ -526,9 +795,7 @@ async function revokeCert() {
 async function issueCRL() {
   output('crlOutput', '正在生成 CRL...', 'info');
   try {
-    const r = await api('/api/crl/issue', {method:'POST', body:JSON.stringify({
-      days: parseInt($('crlDays').value)
-    })});
+    const r = await api('/api/crl/issue', {method:'POST', body:JSON.stringify({days: parseInt($('crlDays').value)})});
     if (r.status === 'ok') {
       output('crlOutput', `✅ CRL 签发成功!\n\n已吊销证书数: ${r.data.revoked_count}\n有效期: ${r.data.days} 天\n\n${r.data.crl_text||''}`, 'ok');
       toast('CRL 签发成功!', 'success');
@@ -546,15 +813,22 @@ async function loadRevokedCerts() {
     if (!r.certificates || r.certificates.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无已注销证书</td></tr>';
     } else {
-      tbody.innerHTML = r.certificates.map(c => `
-        <tr>
+      tbody.innerHTML = r.certificates.map(c => {
+        const isHold = c.revoke_reason === 'certificateHold';
+        const badgeCls = isHold ? 'badge-hold' : 'badge-revoked';
+        const restoreBtn = isHold ? `<button class="btn btn-outline btn-sm" onclick="restoreCert('${c.serial}')">恢复</button>` : '';
+        return `<tr>
           <td class="mono">${c.serial}</td>
           <td>${escapeHtml(c.subject_dn)}</td>
           <td><span class="badge ${c.type==='signing'?'badge-signing':'badge-encryption'}">${c.type==='signing'?'签名':'加密'}</span></td>
           <td>${fmtTs(c.revoke_date)}</td>
-          <td><span class="badge badge-revoked">${c.revoke_reason||'-'}</span></td>
-          <td><button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button></td>
-        </tr>`).join('');
+          <td><span class="badge ${badgeCls}">${c.revoke_reason||'-'}${isHold?' 🔓':''}</span></td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">证书</button>
+            ${restoreBtn}
+          </td>
+        </tr>`;
+      }).join('');
     }
   } catch(e) { console.error(e); }
 }
@@ -582,6 +856,13 @@ async function viewCert(serial) {
         <div class="form-actions">
           <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','cert')">下载证书 PEM</button>
           <button class="btn btn-outline btn-sm" onclick="downloadPem('${c.serial}','key')">下载密钥 PEM</button>
+          ${c.status==='active' ? `
+            <button class="btn btn-outline btn-sm" onclick="closeModal();renewCert('${c.serial}')">续期</button>
+            <button class="btn btn-outline btn-sm" onclick="closeModal();rekeyCert('${c.serial}')">更新密钥</button>
+          ` : ''}
+          ${c.status==='revoked' && c.revoke_reason==='certificateHold' ? `
+            <button class="btn btn-primary btn-sm" onclick="closeModal();restoreCert('${c.serial}')">恢复证书</button>
+          ` : ''}
         </div>
       `;
       $('certModal').classList.add('show');
@@ -601,6 +882,22 @@ function downloadPem(serial, type) {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
       a.download = filename; a.click(); URL.revokeObjectURL(a.href);
       toast(`已下载: ${filename}`, 'success');
+    }
+  });
+}
+
+// ── 拖拽上传支持 ──
+const uploadArea = $('csvUploadArea');
+if (uploadArea) {
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.style.borderColor = 'var(--primary)'; });
+  uploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.style.borderColor = ''; });
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.style.borderColor = '';
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      $('csvFileInput').files = e.dataTransfer.files;
+      handleCSVFile($('csvFileInput'));
     }
   });
 }

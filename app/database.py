@@ -4,7 +4,7 @@ PKI/CA 系统 SQLite 数据库模型与操作。
 
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -223,6 +223,86 @@ def revoke_certificate_in_db(serial: str, reason: str = "unspecified") -> bool:
 def get_revoked_certificates() -> list[dict]:
     """获取所有已吊销证书。"""
     return get_certificates(status="revoked")
+
+
+def get_hold_certificates() -> list[dict]:
+    """获取所有被暂扣 (certificateHold) 的证书。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM certificates WHERE status = 'revoked' AND revoke_reason = 'certificateHold'"
+        " ORDER BY created_at DESC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def restore_certificate_in_db(serial: str) -> dict | None:
+    """
+    将暂扣的证书恢复为活跃状态（仅对 certificateHold 吊销类型有效）。
+    返回恢复后的证书信息，失败返回 None。
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM certificates WHERE serial_number = ? AND status = 'revoked' AND revoke_reason = 'certificateHold'",
+        (serial,),
+    )
+    cert = cursor.fetchone()
+    if not cert:
+        conn.close()
+        return None
+
+    cursor.execute(
+        "UPDATE certificates SET status = 'active', revoke_date = NULL, revoke_reason = NULL WHERE serial_number = ?",
+        (serial,),
+    )
+    conn.commit()
+    conn.close()
+    return dict(cert)
+
+
+def get_expiring_certificates(within_days: int = 30) -> list[dict]:
+    """获取即将过期的活跃证书（指定天数内）。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 查询所有活跃证书，在 Python 层面筛选即将过期的
+    cursor.execute(
+        "SELECT * FROM certificates WHERE status = 'active' ORDER BY expiry_date ASC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    now = datetime.now()
+    threshold = now + timedelta(days=within_days)
+    expiring = []
+    for r in rows:
+        cert = dict(r)
+        try:
+            # 解析 OpenSSL 日期格式: "Jul  2 03:00:27 2026 GMT"
+            expiry_str = cert["expiry_date"]
+            expiry_dt = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+            days_left = (expiry_dt - now).days
+            if 0 <= days_left <= within_days:
+                cert["_days_left"] = days_left
+                expiring.append(cert)
+        except (ValueError, KeyError):
+            continue
+
+    return expiring
+
+
+def get_cert_remaining_days(expiry_date: str) -> int:
+    """根据过期日期字符串计算剩余天数。"""
+    try:
+        now = datetime.now()
+        expiry_dt = datetime.strptime(expiry_date, "%b %d %H:%M:%S %Y %Z")
+        return (expiry_dt - now).days
+    except (ValueError, KeyError):
+        return -999
 
 
 # ── CRL 操作 ────────────────────────────────────────────────────────
